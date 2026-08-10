@@ -123,6 +123,9 @@ tbody tr:hover { background: #fafcff; }
 .project-card summary span:not(.project-badge) { color: #7d8798; font-size: 12px; }
 .resource-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: #ebedf2; }
 .resource-row { background: #fff; padding: 14px 18px; display: flex; align-items: center; gap: 12px; }
+.resource-row.selectable { cursor: pointer; }
+.resource-row.selectable:hover { background: #f8faff; }
+.resource-row.selectable:focus { outline: 2px solid #0878d1; outline-offset: -2px; }
 .resource-row div { display: flex; flex-direction: column; min-width: 0; }
 .resource-row strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .resource-row span:last-child { font-size: 11px; color: #858fa1; margin-top: 4px; }

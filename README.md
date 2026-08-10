@@ -52,6 +52,8 @@ JSON API (v1):
   `token`, and `bit`).
 - `GET /api/explorer/resources` — list the collected project, pipeline-folder,
   and YAML pipeline hierarchy.
+- `GET /api/explorer/resources/permissions` — show which subjects have
+  effective permissions on one resource (`token`).
 - `GET /api/run/export/effective-permissions` — download a flat CSV of every
   subject × resource × action with effective state and provenance flags.
 - `GET /api/run/export/assignments` — download a raw ACE CSV with bitmask

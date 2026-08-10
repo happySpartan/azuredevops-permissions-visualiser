@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import './app.css'
 import SubjectPermissions from './SubjectPermissions'
+import ResourcePermissions from './ResourcePermissions'
 
 interface Run {
   ID: number
@@ -236,10 +237,23 @@ function Subjects() {
   )
 }
 
+interface SelectedResource {
+  token: string
+  name: string
+  type: string
+  path: string
+  projectName: string
+}
+
 function Resources() {
   const [projects, setProjects] = useState<Project[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<SelectedResource | null>(null)
   useEffect(() => { api<{ projects: Project[] }>('/api/explorer/resources').then((data) => setProjects(data.projects)).catch((caught) => setError(String(caught))) }, [])
+
+  if (selected) {
+    return <ResourcePermissions resource={selected} projectName={selected.projectName} onBack={() => setSelected(null)} />
+  }
 
   return (
     <section>
@@ -248,8 +262,18 @@ function Resources() {
       <div className="resource-list">
         {projects.map((project) => <details className="panel project-card" open key={project.id}><summary><div><strong>{project.name}</strong><span>{project.folders.length} folders · {project.pipelines.length} pipelines</span></div><span className="project-badge">Project</span></summary>
           <div className="resource-grid">
-            {project.folders.map((folder) => <div className="resource-row" key={`folder-${folder.path}`}><span className="resource-icon folder">▱</span><div><strong>{folder.path === '/' ? 'Root folder' : folder.path}</strong><span>Pipeline folder</span></div></div>)}
-            {project.pipelines.map((pipeline) => <div className="resource-row" key={`pipeline-${pipeline.id}`}><span className="resource-icon pipeline">▷</span><div><strong>{pipeline.name}</strong><span>{pipeline.folderPath || '/'} · {pipeline.queueStatus || 'status unknown'}</span></div></div>)}
+            {project.folders.map((folder) =>
+              <div className="resource-row selectable" key={`folder-${folder.path}`} role="button" tabIndex={0}
+                onClick={() => setSelected({ token: `${project.id}${folder.path}`, name: folder.path === '/' ? 'Root folder' : folder.path, type: 'folder', path: folder.path, projectName: project.name })}
+                onKeyDown={(event) => { if (event.key === 'Enter') setSelected({ token: `${project.id}${folder.path}`, name: folder.path === '/' ? 'Root folder' : folder.path, type: 'folder', path: folder.path, projectName: project.name }) }}>
+                <span className="resource-icon folder">▱</span><div><strong>{folder.path === '/' ? 'Root folder' : folder.path}</strong><span>Pipeline folder</span></div>
+              </div>)}
+            {project.pipelines.map((pipeline) =>
+              <div className="resource-row selectable" key={`pipeline-${pipeline.id}`} role="button" tabIndex={0}
+                onClick={() => setSelected({ token: `${project.id}${pipeline.folderPath}/${pipeline.id}`, name: pipeline.name, type: 'pipeline', path: pipeline.folderPath, projectName: project.name })}
+                onKeyDown={(event) => { if (event.key === 'Enter') setSelected({ token: `${project.id}${pipeline.folderPath}/${pipeline.id}`, name: pipeline.name, type: 'pipeline', path: pipeline.folderPath, projectName: project.name }) }}>
+                <span className="resource-icon pipeline">▷</span><div><strong>{pipeline.name}</strong><span>{pipeline.folderPath || '/'} · {pipeline.queueStatus || 'status unknown'}</span></div>
+              </div>)}
             {project.folders.length + project.pipelines.length === 0 && <p className="table-empty">No pipeline resources were collected for this project.</p>}
           </div>
         </details>)}

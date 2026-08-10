@@ -228,6 +228,29 @@ func apiRoutes(st *store.Store) http.Handler {
 		json.NewEncoder(w).Encode(explanation)
 	})
 
+	mux.HandleFunc("/api/explorer/resources/permissions", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			httpError(w, http.StatusBadRequest, errors.New("token is required"))
+			return
+		}
+		detail, err := st.ResourcePermissionsByRun(r.Context(), runID, token)
+		if errors.Is(err, store.ErrNotFound) {
+			httpError(w, http.StatusNotFound, err)
+			return
+		}
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(detail)
+	})
+
 	// CSV export endpoints
 	mux.HandleFunc("/api/run/export/effective-permissions", func(w http.ResponseWriter, r *http.Request) {
 		runID, ok := latestRunID(w, r, st)
