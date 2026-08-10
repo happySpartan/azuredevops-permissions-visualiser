@@ -179,7 +179,20 @@ CREATE TABLE IF NOT EXISTS assignments (
     allow_bitmask  INTEGER NOT NULL,
     deny_bitmask   INTEGER NOT NULL,
     inherited      INTEGER NOT NULL DEFAULT 0,
+    inherited_allow_bitmask INTEGER NOT NULL DEFAULT 0,
+    inherited_deny_bitmask  INTEGER NOT NULL DEFAULT 0,
+    effective_allow_bitmask INTEGER NOT NULL DEFAULT 0,
+    effective_deny_bitmask  INTEGER NOT NULL DEFAULT 0,
     UNIQUE(run_id, security_token, descriptor)
+);
+
+CREATE TABLE IF NOT EXISTS permission_actions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id       INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    bit          INTEGER NOT NULL,
+    name         TEXT    NOT NULL,
+    display_name TEXT    NOT NULL,
+    UNIQUE(run_id, bit)
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
@@ -189,9 +202,27 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_run ON pipelines(run_id);
 CREATE INDEX IF NOT EXISTS idx_subjects_run ON subjects(run_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_run ON memberships(run_id);
 CREATE INDEX IF NOT EXISTS idx_assignments_run ON assignments(run_id);
+CREATE INDEX IF NOT EXISTS idx_permission_actions_run ON permission_actions(run_id);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
+	}
+	columns := []struct{ name, definition string }{
+		{"inherited_allow_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+		{"inherited_deny_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+		{"effective_allow_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+		{"effective_deny_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, column := range columns {
+		var count int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('assignments') WHERE name=?`, column.name).Scan(&count); err != nil {
+			return fmt.Errorf("store: inspect assignments: %w", err)
+		}
+		if count == 0 {
+			if _, err := s.db.Exec(`ALTER TABLE assignments ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+				return fmt.Errorf("store: add %s: %w", column.name, err)
+			}
+		}
 	}
 	return nil
 }
@@ -312,6 +343,9 @@ func (s *Store) FailRun(ctx context.Context, runID int64, status Status, msg str
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM assignments WHERE run_id=?`, runID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM permission_actions WHERE run_id=?`, runID); err != nil {
 		return err
 	}
 	return tx.Commit()

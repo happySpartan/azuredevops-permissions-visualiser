@@ -118,30 +118,22 @@ func TestBuildFolders(t *testing.T) {
 
 func TestACEQuery(t *testing.T) {
 	c, srv := fakeOrg(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/myorg/_apis/security/aclquery" {
+		if r.URL.Path != "/myorg/_apis/accesscontrollists/"+BuildNamespaceID {
 			t.Errorf("path = %q", r.URL.Path)
 		}
-		if r.Method != http.MethodPost {
+		if r.Method != http.MethodGet {
 			t.Errorf("method = %s", r.Method)
 		}
-		var body ACLQuery
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decode body: %v", err)
+		if r.URL.Query().Get("token") != "proj/12" || r.URL.Query().Get("includeExtendedInfo") != "true" {
+			t.Errorf("unexpected query: %s", r.URL.RawQuery)
 		}
-		if body.Permissions != -1 {
-			t.Errorf("permissions = %d, want -1", body.Permissions)
-		}
-		writeJSON(w, map[string]any{
-			"value": []ACL{
-				{
-					Token: "proj/12",
-					Perm:  3,
-					Entries: []ACLCE{
-						{Descriptor: "d-1", Allow: 2, Deny: 0},
-					},
-				},
-			},
-		})
+		writeJSON(w, []ACL{{
+			Token: "proj/12",
+			Entries: map[string]ACLCE{"d-1": {
+				Descriptor: "d-1", Allow: 2,
+				ExtendedInfo: ACLExtendedInformation{EffectiveAllow: 2},
+			}},
+		}})
 	})
 	defer srv.Close()
 
@@ -150,36 +142,24 @@ func TestACEQuery(t *testing.T) {
 		t.Fatalf("ACEQuery: %v", err)
 	}
 	acl, ok := got["proj/12"]
-	if !ok {
-		t.Fatalf("missing token in result: %+v", got)
-	}
-	if len(acl.Entries) != 1 || acl.Entries[0].Descriptor != "d-1" {
+	if !ok || len(acl.Entries) != 1 || acl.Entries["d-1"].ExtendedInfo.EffectiveAllow != 2 {
 		t.Fatalf("unexpected ACL: %+v", acl)
 	}
 }
 
-func TestACEQueryChunks(t *testing.T) {
-	chunks := 0
+func TestACEQueryRequestsEachToken(t *testing.T) {
+	requests := 0
 	c, srv := fakeOrg(t, func(w http.ResponseWriter, r *http.Request) {
-		chunks++
-		var body ACLQuery
-		json.NewDecoder(r.Body).Decode(&body)
-		if len(body.SecurityTokens) > 500 {
-			t.Errorf("chunk too large: %d", len(body.SecurityTokens))
-		}
-		writeJSON(w, map[string]any{"value": []ACL{}})
+		requests++
+		writeJSON(w, []ACL{{Token: r.URL.Query().Get("token"), Entries: map[string]ACLCE{}}})
 	})
 	defer srv.Close()
 
-	toks := make([]string, 1050)
-	for i := range toks {
-		toks[i] = "tok" + string(rune('a'+i%26))
-	}
-	if _, err := c.ACEQuery(context.Background(), BuildNamespaceID, toks, false); err != nil {
+	if _, err := c.ACEQuery(context.Background(), BuildNamespaceID, []string{"one", "two", "three"}, false); err != nil {
 		t.Fatalf("ACEQuery: %v", err)
 	}
-	if chunks != 3 {
-		t.Fatalf("expected 3 chunks (1050 tokens), got %d", chunks)
+	if requests != 3 {
+		t.Fatalf("expected 3 requests, got %d", requests)
 	}
 }
 

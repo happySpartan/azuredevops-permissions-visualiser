@@ -180,6 +180,29 @@ func apiRoutes(st *store.Store) http.Handler {
 		json.NewEncoder(w).Encode(page)
 	})
 
+	mux.HandleFunc("/api/explorer/subjects/permissions", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		descriptor := r.URL.Query().Get("descriptor")
+		if descriptor == "" {
+			httpError(w, http.StatusBadRequest, errors.New("descriptor is required"))
+			return
+		}
+		detail, err := st.SubjectPermissionsByRun(r.Context(), runID, descriptor)
+		if errors.Is(err, store.ErrNotFound) {
+			httpError(w, http.StatusNotFound, err)
+			return
+		}
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(detail)
+	})
+
 	return mux
 }
 

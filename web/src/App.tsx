@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import './app.css'
+import SubjectPermissions from './SubjectPermissions'
 
 interface Run {
   ID: number
@@ -197,6 +198,7 @@ function Subjects() {
   const [kind, setKind] = useState('')
   const [offset, setOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Subject | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -205,6 +207,10 @@ function Subjects() {
     }, 200)
     return () => window.clearTimeout(timer)
   }, [search, kind, offset])
+
+  if (selected) {
+    return <SubjectPermissions subject={selected} onBack={() => setSelected(null)} />
+  }
 
   return (
     <section>
@@ -216,7 +222,7 @@ function Subjects() {
       {error && <p className="inline-error">{error}</p>}
       <div className="panel table-panel">
         <table><thead><tr><th>Subject</th><th>Type</th><th>Origin</th><th>Descriptor</th></tr></thead>
-          <tbody>{page?.items.map((subject) => <tr key={subject.descriptor}><td><strong>{subject.displayName}</strong></td><td><span className="kind-badge">{subject.kind || 'unknown'}</span></td><td>{subject.origin || '—'}</td><td className="descriptor">{subject.descriptor}</td></tr>)}</tbody>
+          <tbody>{page?.items.map((subject) => <tr className="selectable-row" key={subject.descriptor} tabIndex={0} onClick={() => setSelected(subject)} onKeyDown={(event) => { if (event.key === 'Enter') setSelected(subject) }}><td><strong>{subject.displayName}</strong></td><td><span className="kind-badge">{subject.kind || 'unknown'}</span></td><td>{subject.origin || '—'}</td><td className="descriptor">{subject.descriptor}</td></tr>)}</tbody>
         </table>
         {page && page.total === 0 && <div className="table-empty">No subjects match these filters.</div>}
         {page && <div className="pagination"><span>{page.total === 0 ? 0 : page.offset + 1}–{Math.min(page.offset + page.items.length, page.total)} of {page.total}</span><div><button disabled={page.offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous</button><button disabled={page.offset + page.limit >= page.total} onClick={() => setOffset(offset + 50)}>Next</button></div></div>}

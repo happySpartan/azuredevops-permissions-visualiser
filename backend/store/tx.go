@@ -109,6 +109,33 @@ func (t *Tx) AddAssignment(ctx context.Context, securityToken, descriptor string
 	return t.countIfChanged(res, &t.counts.Assignments)
 }
 
+// AddAssignmentExtended records explicit, inherited, and effective masks as
+// reported by Azure DevOps for one access control entry.
+func (t *Tx) AddAssignmentExtended(ctx context.Context, securityToken, descriptor string, allow, deny, inheritedAllow, inheritedDeny, effectiveAllow, effectiveDeny int64) error {
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO assignments
+		(run_id, security_token, descriptor, allow_bitmask, deny_bitmask, inherited,
+		 inherited_allow_bitmask, inherited_deny_bitmask, effective_allow_bitmask, effective_deny_bitmask)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.runID, securityToken, descriptor, allow, deny, inheritedAllow|inheritedDeny != 0,
+		inheritedAllow, inheritedDeny, effectiveAllow, effectiveDeny)
+	if err != nil {
+		return fmt.Errorf("store: add extended assignment: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Assignments)
+}
+
+// AddPermissionAction records one action from the Build security namespace.
+func (t *Tx) AddPermissionAction(ctx context.Context, bit int64, name, displayName string) error {
+	_, err := t.tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO permission_actions (run_id, bit, name, display_name)
+		VALUES (?, ?, ?, ?)`, t.runID, bit, name, displayName)
+	if err != nil {
+		return fmt.Errorf("store: add permission action: %w", err)
+	}
+	return nil
+}
+
 // Commit finalises the run's data transaction. It does not change run status;
 // the collector calls store.CompleteRun separately for the atomic replace.
 func (t *Tx) Commit() error { return t.tx.Commit() }

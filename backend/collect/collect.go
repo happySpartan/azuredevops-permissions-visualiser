@@ -176,7 +176,11 @@ func (c *Collector) collectACLs(ctx context.Context, tx *store.Tx) error {
 	if err != nil {
 		return fmt.Errorf("collect: build namespace: %w", err)
 	}
-	_ = ns // namespace actions are used by the UI; collection records raw ACLs
+	for _, action := range ns.Actions {
+		if err := tx.AddPermissionAction(ctx, action.Bit, action.Name, action.DisplayName); err != nil {
+			return err
+		}
+	}
 
 	tokens, err := tx.TokensByRunTx(ctx)
 	if err != nil {
@@ -191,8 +195,13 @@ func (c *Collector) collectACLs(ctx context.Context, tx *store.Tx) error {
 	}
 	// Persist raw entries as reported by Azure DevOps.
 	for token, acl := range acls {
-		for _, e := range acl.Entries {
-			if err := tx.AddAssignment(ctx, token, e.Descriptor, e.Allow, e.Deny, false); err != nil {
+		for descriptor, e := range acl.Entries {
+			if e.Descriptor == "" {
+				e.Descriptor = descriptor
+			}
+			info := e.ExtendedInfo
+			if err := tx.AddAssignmentExtended(ctx, token, e.Descriptor, e.Allow, e.Deny,
+				info.InheritedAllow, info.InheritedDeny, info.EffectiveAllow, info.EffectiveDeny); err != nil {
 				return err
 			}
 		}

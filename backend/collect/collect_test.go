@@ -101,22 +101,22 @@ func (f *fakeServer) handler() http.Handler {
 		})
 	})
 
-	mux.HandleFunc("/org/_apis/security/aclquery", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.BuildNamespaceID, func(w http.ResponseWriter, r *http.Request) {
 		if f.aclErr {
 			http.Error(w, `{"message":"acl denied"}`, http.StatusForbidden)
 			return
 		}
-		writeJSON(w, map[string]any{"value": []azdo.ACL{
-			{Token: "PROJ-A", Entries: []azdo.ACLCE{
-				{Descriptor: "g-1", Allow: 3, Deny: 0},
-			}},
-			{Token: "PROJ-A/Shared", Entries: []azdo.ACLCE{
-				{Descriptor: "u-1", Allow: 1, Deny: 0},
-			}},
-			{Token: "PROJ-A/Shared/12", Entries: []azdo.ACLCE{
-				{Descriptor: "g-1", Allow: 2, Deny: 0},
-			}},
-		}})
+		token := r.URL.Query().Get("token")
+		entries := map[string]azdo.ACLCE{}
+		switch token {
+		case "PROJ-A":
+			entries["g-1"] = azdo.ACLCE{Descriptor: "g-1", Allow: 3, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 3}}
+		case "PROJ-A/Shared":
+			entries["u-1"] = azdo.ACLCE{Descriptor: "u-1", Allow: 1, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 1}}
+		case "PROJ-A/Shared/12":
+			entries["g-1"] = azdo.ACLCE{Descriptor: "g-1", Allow: 2, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 2}}
+		}
+		writeJSON(w, []azdo.ACL{{Token: token, Entries: entries}})
 	})
 
 	return mux

@@ -2,7 +2,6 @@ package azdo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -33,17 +32,25 @@ type ACLQuery struct {
 
 // ACL represents a single access control entry returned by the ACL query.
 type ACL struct {
-	Token     string  `json:"token"`
-	Perm      int64   `json:"perm"`
-	Inherited int64   `json:"inherited"`
-	Entries   []ACLCE `json:"aces"`
+	Token              string           `json:"token"`
+	InheritPermissions bool             `json:"inheritPermissions"`
+	Entries            map[string]ACLCE `json:"acesDictionary"`
 }
 
-// ACLCE is a single access control entry with a descriptor hash and deny/allow bits.
+// ACLCE is a single access control entry with Azure DevOps extended information.
 type ACLCE struct {
-	Descriptor string `json:"descriptor"`
-	Allow      int64  `json:"allow"`
-	Deny       int64  `json:"deny"`
+	Descriptor   string                 `json:"descriptor"`
+	Allow        int64                  `json:"allow"`
+	Deny         int64                  `json:"deny"`
+	ExtendedInfo ACLExtendedInformation `json:"extendedInfo"`
+}
+
+// ACLExtendedInformation holds Azure DevOps' inherited and effective result.
+type ACLExtendedInformation struct {
+	InheritedAllow int64 `json:"inheritedAllow"`
+	InheritedDeny  int64 `json:"inheritedDeny"`
+	EffectiveAllow int64 `json:"effectiveAllow"`
+	EffectiveDeny  int64 `json:"effectiveDeny"`
 }
 
 // BuildNamespaceID is the well-known GUID for the Build security namespace.
@@ -76,42 +83,18 @@ func (c *Client) SecurityNamespaces(ctx context.Context) ([]SecurityNamespace, e
 // namespace. Returns a map from security token to its ACL. Azure DevOps limits
 // requests to 500 tokens each, so large sets are chunked.
 func (c *Client) ACEQuery(ctx context.Context, namespaceID string, tokens []string, recurse bool) (map[string]ACL, error) {
-	const maxChunk = 500
 	all := make(map[string]ACL)
-	for i := 0; i < len(tokens); i += maxChunk {
-		end := i + maxChunk
-		if end > len(tokens) {
-			end = len(tokens)
-		}
-		body := ACLQuery{
-			SecurityTokens: tokens[i:end],
-			Permissions:    -1, // fetch all bit permissions
-			Recurse:        recurse,
-		}
-		q := url.Values{"api-version": {"7.1-preview.1"}}
-		req, err := c.request(ctx, "POST", "/_apis/security/aclquery", q, body)
-		if err != nil {
+	for _, token := range tokens {
+		q := url.Values{"api-version": {"7.1"}}
+		q.Set("token", token)
+		q.Set("includeExtendedInfo", "true")
+		q.Set("recurse", fmt.Sprint(recurse))
+		var out []ACL
+		if err := c.get(ctx, "/_apis/accesscontrollists/"+namespaceID, q, &out); err != nil {
 			return nil, err
 		}
-		resp, err := c.do(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode >= 400 {
-			errMsg := c.decodeError(resp)
-			resp.Body.Close()
-			return nil, errMsg
-		}
-		var out struct {
-			Value []ACL `json:"value"`
-		}
-		decodeErr := json.NewDecoder(resp.Body).Decode(&out)
-		resp.Body.Close()
-		if decodeErr != nil {
-			return nil, fmt.Errorf("azdo: decoding aclquery: %w", decodeErr)
-		}
-		for _, a := range out.Value {
-			all[a.Token] = a
+		for _, acl := range out {
+			all[acl.Token] = acl
 		}
 	}
 	return all, nil

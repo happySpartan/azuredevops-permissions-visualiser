@@ -45,6 +45,8 @@ JSON API (v1):
 - `POST /api/run/delete` — delete all collected data.
 - `GET /api/explorer/subjects` — search and page through collected users and
   groups (`search`, `kind`, `limit`, and `offset` query parameters).
+- `GET /api/explorer/subjects/permissions` — show Azure DevOps' reported
+  effective Build permission results for one subject (`descriptor`).
 - `GET /api/explorer/resources` — list the collected project, pipeline-folder,
   and YAML pipeline hierarchy.
 
