@@ -1,0 +1,23 @@
+# Go
+bin/
+backend/visualiser
+*.test
+
+# Node / frontend (deps + generated asset bundles)
+node_modules/
+web/node_modules/
+web/dist/
+backend/web/dist/assets/
+*.tsbuildinfo
+
+# Keep backend/web/dist/index.html (placeholder) committed so go:embed always compiles.
+
+# Local data (SQLite)
+*.db
+*.db-shm
+*.db-wal
+
+# Editor / OS
+.DS_Store
+*.log
+.idea/

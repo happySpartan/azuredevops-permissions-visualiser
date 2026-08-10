@@ -1,0 +1,21 @@
+{
+  "name": "azuredevops-permissions-visualiser",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    },
+    "ghcr.io/devcontainers/features/azure-cli:1": {},
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.23"
+    }
+  },
+  "postCreateCommand": "npm install -g hermes-agent",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
