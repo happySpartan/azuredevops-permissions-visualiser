@@ -11,6 +11,7 @@ import (
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend"
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/azdo"
+	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/store"
 )
 
 func main() {
@@ -34,22 +35,29 @@ func main() {
 		})
 	})
 
+	// Open (or create) the local SQLite store.
+	if err := ensureDataDir(); err != nil {
+		log.Fatalf("store: create data dir: %v", err)
+	}
+	st, err := store.Open(store.DefaultDBPath())
+	if err != nil {
+		log.Fatalf("store: %v", err)
+	}
+	defer st.Close()
+
 	// API routes (v1)
-	mux.Handle("/api/", apiRoutes())
+	mux.Handle("/api/", apiRoutes(st))
 
 	// Serve embedded frontend for all non-API routes
 	sub, err := fs.Sub(backend.WebFS, "web/dist")
 	if err != nil {
-		// Fallback: no frontend embedded
 		mux.Handle("/", http.NotFoundHandler())
 	} else {
-		fileServer := http.FileServer(http.FS(sub))
-		mux.Handle("/", fileServer)
+		mux.Handle("/", http.FileServer(http.FS(sub)))
 	}
 
-	// Spinner
 	addr := bind + ":" + port
-	log.Printf("Listening on http://%s", addr)
+	log.Printf("Listening on http://%s (data: %s)", addr, store.DefaultDBPath())
 
 	go func() {
 		if err := http.ListenAndServe(addr, mux); err != nil {
@@ -57,47 +65,81 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown on SIGINT/SIGTERM
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down...")
 }
 
-// apiRoutes returns the v1 JSON API handler. Organization is provided via the
-// ORG environment variable (Azure CLI must be authenticated).
-func apiRoutes() http.Handler {
+// apiRoutes returns the v1 JSON API handler.
+func apiRoutes(st *store.Store) http.Handler {
 	org := os.Getenv("AZDO_ORG")
-	var client *azdo.Client
-	if org != "" {
-		var err error
-		client, err = azdo.NewClient(org)
-		if err != nil {
-			log.Printf("azdo: unable to create client for org %q: %v", org, err)
-			client = nil
-		}
-	}
-
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
+	// reusableClient builds an azdo client from the configured org, or nil.
+	reusableClient := func() (*azdo.Client, error) {
+		if org == "" {
+			return nil, errNoOrg
+		}
+		return azdo.NewClient(org)
+	}
+
+	mux.HandleFunc("/api/run/current", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if client == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error":   "no organization configured",
-				"details": "set AZDO_ORG and authenticate with Azure CLI",
-			})
-			return
-		}
-		projects, err := client.Projects(r.Context())
+		id, err := st.LatestRunID(r.Context())
 		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"value": projects})
+		if id == 0 {
+			json.NewEncoder(w).Encode(map[string]any{"run": nil})
+			return
+		}
+		run, err := st.RunByID(r.Context(), id)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"run": run})
+	})
+
+	mux.HandleFunc("/api/run/collect", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		client, err := reusableClient()
+		if err != nil {
+			httpError(w, http.StatusServiceUnavailable, err)
+			return
+		}
+		if err := requireAzAuth(r); err != nil {
+			httpError(w, http.StatusServiceUnavailable, err)
+			return
+		}
+		collector := newCollector(client, st)
+		res, err := collector.Collect(r.Context(), org)
+		if err != nil {
+			httpError(w, http.StatusBadGateway, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"runID":  res.RunID,
+			"counts": res.Counts,
+		})
+	})
+
+	mux.HandleFunc("/api/run/delete", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := st.DeleteAll(r.Context()); err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	})
 
 	return mux
+}
+
+func httpError(w http.ResponseWriter, code int, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }

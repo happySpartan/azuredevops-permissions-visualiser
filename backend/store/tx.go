@@ -1,0 +1,130 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+)
+
+// ErrNoActiveRun indicates data was written outside a begun run's transaction.
+var ErrNoActiveRun = errors.New("store: no active run transaction")
+
+// Tx is a single run's data transaction. The collector calls its writers and
+// then Commit (success) or Abort (failure/cancel). All writes for a run happen
+// here so the run is atomic.
+type Tx struct {
+	db     *sql.DB
+	tx     *sql.Tx
+	runID  int64
+	counts RunCounts
+}
+
+// BeginTx opens a transaction scoped to runID for writing its collected data.
+func (s *Store) BeginTx(ctx context.Context, runID int64) (*Tx, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin tx: %w", err)
+	}
+	return &Tx{db: s.db, tx: tx, runID: runID}, nil
+}
+
+// RunID returns the run this transaction writes to.
+func (t *Tx) RunID() int64 { return t.runID }
+
+// Counts returns the running tallies of writes so far.
+func (t *Tx) Counts() RunCounts { return t.counts }
+
+// AddProject records a project discovered in the org.
+func (t *Tx) AddProject(ctx context.Context, orgID, name string) error {
+	res, err := t.tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO projects (run_id, org_id, name) VALUES (?, ?, ?)`,
+		t.runID, orgID, name)
+	if err != nil {
+		return fmt.Errorf("store: add project: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Projects)
+}
+
+// AddFolder records a pipeline folder for a project.
+func (t *Tx) AddFolder(ctx context.Context, projectID, path string) error {
+	res, err := t.tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO folders (run_id, project_id, path) VALUES (?, ?, ?)`,
+		t.runID, projectID, path)
+	if err != nil {
+		return fmt.Errorf("store: add folder: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Folders)
+}
+
+// AddPipeline records a YAML pipeline definition for a project.
+func (t *Tx) AddPipeline(ctx context.Context, projectID string, definitionID int, name, folderPath, queueStatus string) error {
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO pipelines (run_id, project_id, definition_id, name, folder_path, queue_status)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		t.runID, projectID, definitionID, name, folderPath, queueStatus)
+	if err != nil {
+		return fmt.Errorf("store: add pipeline: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Pipelines)
+}
+
+// AddSubject records a user or group.
+func (t *Tx) AddSubject(ctx context.Context, descriptor, displayName, origin, subjectKind string) error {
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO subjects (run_id, descriptor, display_name, origin, subject_kind)
+		VALUES (?, ?, ?, ?, ?)`,
+		t.runID, descriptor, displayName, origin, subjectKind)
+	if err != nil {
+		return fmt.Errorf("store: add subject: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Subjects)
+}
+
+// AddMembership records that parent contains member (direct edge).
+func (t *Tx) AddMembership(ctx context.Context, parentDescriptor, memberDescriptor string) error {
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO memberships (run_id, parent_descriptor, member_descriptor)
+		VALUES (?, ?, ?)`,
+		t.runID, parentDescriptor, memberDescriptor)
+	if err != nil {
+		return fmt.Errorf("store: add membership: %w", err)
+	}
+	return t.countIfChanged(res, nil)
+}
+
+// AddAssignment records a raw ACL entry for a security token and descriptor.
+func (t *Tx) AddAssignment(ctx context.Context, securityToken, descriptor string, allow, deny int64, inherited bool) error {
+	inh := 0
+	if inherited {
+		inh = 1
+	}
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO assignments (run_id, security_token, descriptor, allow_bitmask, deny_bitmask, inherited)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		t.runID, securityToken, descriptor, allow, deny, inh)
+	if err != nil {
+		return fmt.Errorf("store: add assignment: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Assignments)
+}
+
+// Commit finalises the run's data transaction. It does not change run status;
+// the collector calls store.CompleteRun separately for the atomic replace.
+func (t *Tx) Commit() error { return t.tx.Commit() }
+
+// Abort discards the run's transaction without applying any writes.
+func (t *Tx) Abort() error { return t.tx.Rollback() }
+
+// countIfChanged increments the appropriate counter only when a row was actually
+// inserted (INSERT OR IGNORE may insert nothing on duplicate).
+func (t *Tx) countIfChanged(res sql.Result, counter *int) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if counter != nil && n > 0 {
+		*counter += int(n)
+	}
+	return nil
+}

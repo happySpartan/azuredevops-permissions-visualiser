@@ -24,15 +24,17 @@ func (c *Client) GraphSubjects(ctx context.Context, subjectKind string) ([]Graph
 	q.Set("subjectTypes", subjectKind)
 	for {
 		var out struct {
-			Value []GraphSubject `json:"value"`
+			Value        []GraphSubject    `json:"value"`
+			Continuation *jsonContinuation `json:"continuationToken"`
 		}
 		if err := c.get(ctx, endpoint, q, &out); err != nil {
 			return nil, err
 		}
 		all = append(all, out.Value...)
-		if len(out.Value) == 0 {
+		if out.Continuation == nil || out.Continuation.Value == "" || len(out.Value) == 0 {
 			break
 		}
+		q.Set("continuationToken", out.Continuation.Value)
 	}
 	return all, nil
 }

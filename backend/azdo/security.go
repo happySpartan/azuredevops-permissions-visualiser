@@ -97,6 +97,11 @@ func (c *Client) ACEQuery(ctx context.Context, namespaceID string, tokens []stri
 		if err != nil {
 			return nil, err
 		}
+		if resp.StatusCode >= 400 {
+			errMsg := c.decodeError(resp)
+			resp.Body.Close()
+			return nil, errMsg
+		}
 		var out struct {
 			Value []ACL `json:"value"`
 		}

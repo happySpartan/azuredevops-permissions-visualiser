@@ -19,7 +19,7 @@ to `127.0.0.1` by default (single-administrator, local/private).
 
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.25+
 - Node.js 20+ and npm
 - Azure CLI (required, not bundled) for authentication
 
@@ -33,6 +33,21 @@ make run       # run the backend (serves the built frontend)
 ```
 
 Visit `http://127.0.0.1:8080`. The `/api/health` endpoint reports status.
+
+JSON API (v1):
+
+- `GET /api/health` — service status.
+- `GET /api/run/current` — the latest completed analysis run (or `null`).
+- `POST /api/run/collect` — run a one-shot collection of the configured
+  organization (`AZDO_ORG`); requires Azure CLI authentication. A failed or
+  cancelled run is discarded and never becomes an analysis; the previous good
+  run is preserved.
+- `POST /api/run/delete` — delete all collected data.
+
+Collected data is stored in a per-user data directory (SQLite):
+`AZDO_VIS_DATA_DIR` overrides the default (`%LOCALAPPDATA%\AzureDevOpsPermsVisualiser`
+on Windows, `~/.local/share/azuredevops-permissions-visualiser` on Linux). Only
+the latest completed run is retained.
 
 Development mode (live reload + API proxy):
 
