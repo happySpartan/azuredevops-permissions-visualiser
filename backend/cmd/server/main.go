@@ -228,6 +228,33 @@ func apiRoutes(st *store.Store) http.Handler {
 		json.NewEncoder(w).Encode(explanation)
 	})
 
+	// CSV export endpoints
+	mux.HandleFunc("/api/run/export/effective-permissions", func(w http.ResponseWriter, r *http.Request) {
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=effective-permissions.csv")
+		if err := st.ExportEffectivePermissionsCSV(r.Context(), runID, w); err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+	})
+
+	mux.HandleFunc("/api/run/export/assignments", func(w http.ResponseWriter, r *http.Request) {
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=assignments.csv")
+		if err := st.ExportSubjectAssignmentsCSV(r.Context(), runID, w); err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+	})
+
 	return mux
 }
 

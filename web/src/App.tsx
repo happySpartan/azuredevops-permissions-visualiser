@@ -183,6 +183,11 @@ function Overview({ run, busy, onCollect, onDelete, onExplore }: {
       <div className="stats-grid">
         {stats.map(([label, value]) => <article className="stat-card" key={label}><span>{label}</span><strong>{value.toLocaleString()}</strong></article>)}
       </div>
+      <div className="export-actions">
+        <span>Export collected data</span>
+        <a className="button secondary" href="/api/run/export/effective-permissions" download>Effective permissions (CSV)</a>
+        <a className="button secondary" href="/api/run/export/assignments" download>Raw assignments (CSV)</a>
+      </div>
       <div className="panel run-details">
         <div><h2>Run details</h2><p>This collected state is retained until the next successful run.</p></div>
         <dl><div><dt>Organization</dt><dd>{run.Org}</dd></div><div><dt>Run ID</dt><dd>#{run.ID}</dd></div><div><dt>Status</dt><dd>{run.Status}</dd></div></dl>
