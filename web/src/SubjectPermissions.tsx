@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import PermissionExplanationDrawer from './PermissionExplanationDrawer'
 
 export interface Subject {
   descriptor: string
@@ -7,7 +8,7 @@ export interface Subject {
   kind: string
 }
 
-interface PermissionResult {
+export interface PermissionResult {
   bit: number
   name: string
   displayName: string
@@ -17,7 +18,7 @@ interface PermissionResult {
   viaGroup: boolean
 }
 
-interface PermissionResource {
+export interface PermissionResource {
   token: string
   type: string
   name: string
@@ -41,6 +42,7 @@ export default function SubjectPermissions({ subject, onBack }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [explainTarget, setExplainTarget] = useState<{ resource: PermissionResource; permission: PermissionResult } | null>(null)
   const prominent = new Set(['ViewBuilds', 'QueueBuilds', 'ViewBuildDefinition', 'EditBuildDefinition', 'DeleteBuildDefinition', 'AdministerBuildPermissions'])
 
   useEffect(() => {
@@ -73,7 +75,7 @@ export default function SubjectPermissions({ subject, onBack }: Props) {
           return <article className="panel permission-card" key={resource.token}>
             <header><div><span className="resource-type">{resource.type}</span><h2>{resource.name}</h2><p>{resource.projectName}{resource.path ? ` · ${resource.path}` : ''}</p></div><code>{resource.token}</code></header>
             <div className="permission-grid">
-              {permissions.map((permission) => <div className="permission-row" key={permission.bit}>
+              {permissions.map((permission) => <div className="permission-row" key={permission.bit} role="button" tabIndex={0} onClick={() => setExplainTarget({ resource, permission })} onKeyDown={(event) => { if (event.key === 'Enter') setExplainTarget({ resource, permission }) }}>
                 <div><strong>{permission.displayName || permission.name}</strong><span>{permission.name}</span></div>
                 <span className={`permission-state ${permission.state}`}>{permission.state === 'notSet' ? 'Not set' : permission.state}</span>
                 <div className="provenance">{permission.direct && <span>Direct</span>}{permission.inherited && <span>Inherited</span>}{permission.viaGroup && <span>Via group</span>}{!permission.direct && !permission.inherited && !permission.viaGroup && <span>—</span>}</div>
@@ -82,6 +84,7 @@ export default function SubjectPermissions({ subject, onBack }: Props) {
           </article>
         })}
       </div>
+      {explainTarget && <PermissionExplanationDrawer subject={subject} resource={explainTarget.resource} permission={explainTarget.permission} onClose={() => setExplainTarget(null)} />}
     </section>
   )
 }

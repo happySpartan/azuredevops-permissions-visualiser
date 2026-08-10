@@ -47,6 +47,9 @@ JSON API (v1):
   groups (`search`, `kind`, `limit`, and `offset` query parameters).
 - `GET /api/explorer/subjects/permissions` — show Azure DevOps' reported
   effective Build permission results for one subject (`descriptor`).
+- `GET /api/explorer/subjects/explanation` — explain one subject/resource/action
+  tuple with raw ACEs, nested group paths, and resource ancestry (`descriptor`,
+  `token`, and `bit`).
 - `GET /api/explorer/resources` — list the collected project, pipeline-folder,
   and YAML pipeline hierarchy.
 

@@ -203,6 +203,31 @@ func apiRoutes(st *store.Store) http.Handler {
 		json.NewEncoder(w).Encode(detail)
 	})
 
+	mux.HandleFunc("/api/explorer/subjects/explanation", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		descriptor := r.URL.Query().Get("descriptor")
+		token := r.URL.Query().Get("token")
+		bit, err := queryInt(r, "bit", 0)
+		if descriptor == "" || token == "" || err != nil || bit <= 0 {
+			httpError(w, http.StatusBadRequest, errors.New("descriptor, token, and positive bit are required"))
+			return
+		}
+		explanation, err := st.PermissionExplanationByRun(r.Context(), runID, descriptor, token, int64(bit))
+		if errors.Is(err, store.ErrNotFound) {
+			httpError(w, http.StatusNotFound, err)
+			return
+		}
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(explanation)
+	})
+
 	return mux
 }
 
