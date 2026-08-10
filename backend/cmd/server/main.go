@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend"
+	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/azdo"
 )
 
 func main() {
@@ -33,8 +34,8 @@ func main() {
 		})
 	})
 
-	// API routes (v1 placeholder)
-	mux.Handle("/api/", http.NotFoundHandler())
+	// API routes (v1)
+	mux.Handle("/api/", apiRoutes())
 
 	// Serve embedded frontend for all non-API routes
 	sub, err := fs.Sub(backend.WebFS, "web/dist")
@@ -63,3 +64,40 @@ func main() {
 	log.Println("Shutting down...")
 }
 
+// apiRoutes returns the v1 JSON API handler. Organization is provided via the
+// ORG environment variable (Azure CLI must be authenticated).
+func apiRoutes() http.Handler {
+	org := os.Getenv("AZDO_ORG")
+	var client *azdo.Client
+	if org != "" {
+		var err error
+		client, err = azdo.NewClient(org)
+		if err != nil {
+			log.Printf("azdo: unable to create client for org %q: %v", org, err)
+			client = nil
+		}
+	}
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if client == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "no organization configured",
+				"details": "set AZDO_ORG and authenticate with Azure CLI",
+			})
+			return
+		}
+		projects, err := client.Projects(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"value": projects})
+	})
+
+	return mux
+}
