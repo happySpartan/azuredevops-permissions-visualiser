@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend"
@@ -135,7 +137,75 @@ func apiRoutes(st *store.Store) http.Handler {
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	})
 
+	mux.HandleFunc("/api/explorer/resources", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		resources, err := st.ResourcesByRun(r.Context(), runID)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"projects": resources})
+	})
+
+	mux.HandleFunc("/api/explorer/subjects", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		limit, err := queryInt(r, "limit", 50)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		offset, err := queryInt(r, "offset", 0)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		page, err := st.SubjectsByRun(r.Context(), runID, store.SubjectQuery{
+			Search: r.URL.Query().Get("search"),
+			Kind:   r.URL.Query().Get("kind"),
+			Limit:  limit,
+			Offset: offset,
+		})
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(page)
+	})
+
 	return mux
+}
+
+func latestRunID(w http.ResponseWriter, r *http.Request, st *store.Store) (int64, bool) {
+	id, err := st.LatestRunID(r.Context())
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err)
+		return 0, false
+	}
+	if id == 0 {
+		httpError(w, http.StatusNotFound, store.ErrNotFound)
+		return 0, false
+	}
+	return id, true
+}
+
+func queryInt(r *http.Request, name string, fallback int) (int, error) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, errors.New("invalid " + name)
+	}
+	return value, nil
 }
 
 func httpError(w http.ResponseWriter, code int, err error) {
