@@ -276,6 +276,24 @@ func apiRoutes(st *store.Store) http.Handler {
 	})
 
 	// CSV export endpoints
+	mux.HandleFunc("/api/explorer/subjects/export", func(w http.ResponseWriter, r *http.Request) {
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		descriptor := r.URL.Query().Get("descriptor")
+		if descriptor == "" {
+			httpError(w, http.StatusBadRequest, errors.New("descriptor is required"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=subject-permissions.csv")
+		if err := st.ExportSubjectPermissionsCSV(r.Context(), runID, descriptor, w); err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+	})
+
 	mux.HandleFunc("/api/run/export/effective-permissions", func(w http.ResponseWriter, r *http.Request) {
 		runID, ok := latestRunID(w, r, st)
 		if !ok {

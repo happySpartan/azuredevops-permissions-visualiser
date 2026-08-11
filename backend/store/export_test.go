@@ -21,7 +21,7 @@ func TestExportEffectivePermissionsCSV(t *testing.T) {
 	_ = tx.AddMembership(ctx, "g-1", "u-1")
 	_ = tx.AddPermissionAction(ctx, 1, "ViewBuilds", "View builds")
 	_ = tx.AddPermissionAction(ctx, 2, "QueueBuilds", "Queue builds")
-	_ = tx.AddAssignmentExtended(ctx, "p1", "g-1", 1, 0, 0, 0, 1, 0) // allow ViewBuilds
+	_ = tx.AddAssignmentExtended(ctx, "p1", "g-1", 1, 0, 0, 0, 1, 0)           // allow ViewBuilds
 	_ = tx.AddAssignmentExtended(ctx, "p1/Shared/12", "u-1", 2, 0, 0, 0, 2, 0) // allow QueueBuilds
 	_ = tx.Commit()
 	_ = s.CompleteRun(ctx, runID, tx.Counts())
@@ -67,7 +67,7 @@ func TestExportEffectivePermissionsCSV(t *testing.T) {
 				cols := strings.Split(line, ",")
 				if len(cols) >= 12 {
 					// direct, inherited, via_group
-					_ = cols[9] // direct
+					_ = cols[9]  // direct
 					_ = cols[10] // inherited
 					_ = cols[11] // via_group
 				}
@@ -96,6 +96,35 @@ func TestExportSubjectAssignmentsCSV(t *testing.T) {
 	body := buf.String()
 	if !strings.Contains(body, "u-1") || !strings.Contains(body, "0x1") {
 		t.Fatalf("expected u-1 and mask 0x1 in:\n%s", body)
+	}
+}
+
+func TestExportSubjectPermissionsCSVScopesRowsToSubject(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	runID, _ := s.BeginRun(ctx, "acme")
+	tx, _ := s.BeginTx(ctx, runID)
+	_ = tx.AddProject(ctx, "p1", "Alpha")
+	_ = tx.AddSubject(ctx, "u-1", "Alice", "aad", "user")
+	_ = tx.AddSubject(ctx, "u-2", "Bob", "aad", "user")
+	_ = tx.AddPermissionAction(ctx, 1, "ViewBuilds", "View builds")
+	_ = tx.AddAssignmentExtended(ctx, "p1", "u-1", 1, 0, 0, 0, 1, 0)
+	_ = tx.AddAssignmentExtended(ctx, "p1", "u-2", 0, 1, 0, 0, 0, 1)
+	_ = tx.Commit()
+	_ = s.CompleteRun(ctx, runID, tx.Counts())
+
+	var buf bytes.Buffer
+	if err := s.ExportSubjectPermissionsCSV(ctx, runID, "u-1", &buf); err != nil {
+		t.Fatalf("ExportSubjectPermissionsCSV: %v", err)
+	}
+
+	body := buf.String()
+	if !strings.Contains(body, "u-1,Alice") || !strings.Contains(body, "ViewBuilds") || !strings.Contains(body, "allow") {
+		t.Fatalf("expected Alice's effective permission in:\n%s", body)
+	}
+	if strings.Contains(body, "u-2") || strings.Contains(body, "Bob") {
+		t.Fatalf("subject export must not include other subjects:\n%s", body)
 	}
 }
 

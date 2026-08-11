@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -13,6 +14,19 @@ import (
 // subject × resource × permission result to w. Each row shows the
 // effective state plus provenance flags from the collected run.
 func (s *Store) ExportEffectivePermissionsCSV(ctx context.Context, runID int64, w io.Writer) error {
+	return s.exportEffectivePermissionsCSV(ctx, runID, "", w)
+}
+
+// ExportSubjectPermissionsCSV writes the effective-permission rows shown in
+// the subject explorer for one subject.
+func (s *Store) ExportSubjectPermissionsCSV(ctx context.Context, runID int64, descriptor string, w io.Writer) error {
+	if descriptor == "" {
+		return errors.New("store: subject descriptor is required")
+	}
+	return s.exportEffectivePermissionsCSV(ctx, runID, descriptor, w)
+}
+
+func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, descriptor string, w io.Writer) error {
 	actions, err := permissionActionsByRun(ctx, s.db, runID)
 	if err != nil {
 		return fmt.Errorf("store: export actions: %w", err)
@@ -28,8 +42,8 @@ func (s *Store) ExportEffectivePermissionsCSV(ctx context.Context, runID int64, 
 		FROM assignments a
 		JOIN subjects s ON s.run_id = a.run_id AND s.descriptor = a.descriptor
 		LEFT JOIN projects p ON p.run_id = a.run_id AND p.org_id = SUBSTR(a.security_token, 1, INSTR(a.security_token || '/', '/') - 1)
-		WHERE a.run_id = ?
-		ORDER BY a.descriptor, a.security_token`, runID)
+		WHERE a.run_id = ? AND (? = '' OR a.descriptor = ?)
+		ORDER BY a.descriptor, a.security_token`, runID, descriptor, descriptor)
 	if err != nil {
 		return fmt.Errorf("store: export query: %w", err)
 	}

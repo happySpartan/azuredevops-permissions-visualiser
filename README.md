@@ -50,6 +50,8 @@ JSON API (v1):
 - `GET /api/explorer/subjects/explanation` — explain one subject/resource/action
   tuple with raw ACEs, nested group paths, and resource ancestry (`descriptor`,
   `token`, and `bit`).
+- `GET /api/explorer/subjects/export` — download the current subject's effective
+  permission rows as CSV (`descriptor`).
 - `GET /api/explorer/resources` — list the collected project, pipeline-folder,
   and YAML pipeline hierarchy.
 - `GET /api/explorer/resources/permissions` — show which subjects have

@@ -63,7 +63,10 @@ export default function SubjectPermissions({ subject, onBack }: Props) {
       <button className="back-link" onClick={onBack}>← Back to subjects</button>
       <div className="page-heading subject-heading">
         <div><p className="eyebrow">Subject permissions</p><h1>{subject.displayName}</h1><p>{subject.kind || 'Unknown type'} · {subject.origin || 'Unknown origin'}</p></div>
-        <button className="button secondary" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show key actions' : 'Show all actions'}</button>
+        <div className="heading-actions">
+          <a className="button secondary" href={`/api/explorer/subjects/export?${new URLSearchParams({ descriptor: subject.descriptor })}`} download>Export CSV</a>
+          <button className="button secondary" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show key actions' : 'Show all actions'}</button>
+        </div>
       </div>
       <div className="source-note"><strong>Azure DevOps result</strong><span>Effective states are the inherited and effective masks reported by Azure DevOps, not a locally reconstructed verdict.</span></div>
       {loading && <div className="panel loading-state">Loading collected permissions…</div>}
