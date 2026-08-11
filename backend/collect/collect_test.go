@@ -94,11 +94,11 @@ func (f *fakeServer) handler() http.Handler {
 	})
 
 	mux.HandleFunc("/org/_apis/securitynamespaces/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{
+		writeJSON(w, map[string]any{"value": []map[string]any{{
 			"namespaceId": azdo.BuildNamespaceID,
 			"name":        "Build",
 			"actions":     []azdo.ACE{{Bit: 1, Name: "ViewBuilds"}},
-		})
+		}}})
 	})
 
 	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.BuildNamespaceID, func(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +116,7 @@ func (f *fakeServer) handler() http.Handler {
 		case "PROJ-A/Shared/12":
 			entries["g-1"] = azdo.ACLCE{Descriptor: "g-1", Allow: 2, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 2}}
 		}
-		writeJSON(w, []azdo.ACL{{Token: token, Entries: entries}})
+		writeJSON(w, map[string]any{"value": []azdo.ACL{{Token: token, Entries: entries}}})
 	})
 
 	return mux
@@ -133,6 +133,7 @@ func newCollector(t *testing.T, f *fakeServer) (*Collector, *store.Store, *httpt
 	client, err := azdo.NewClient("org",
 		azdo.WithHTTPClient(srv.Client()),
 		azdo.WithBaseURL(srv.URL),
+		azdo.WithVSSPSURL(srv.URL),
 		azdo.WithTokenProvider(staticTok{}),
 		azdo.WithRetry(0, 0, 0),
 	)

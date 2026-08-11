@@ -44,6 +44,11 @@ func TestProjects(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer tok-123" {
 			t.Errorf("auth header = %q", got)
 		}
+		// Azure DevOps requires the MSA pass-through header for personal
+		// Microsoft accounts; without it a valid token is redirected to sign-in.
+		if got := r.Header.Get("X-VSS-ForceMsaPassThrough"); got != "true" {
+			t.Errorf("msa pass-through header = %q", got)
+		}
 		writeJSON(w, map[string]any{
 			"value": []Project{
 				{ID: "p1", Name: "Alpha", State: "wellFormed"},
@@ -128,13 +133,13 @@ func TestACEQuery(t *testing.T) {
 		if r.URL.Query().Get("token") != "proj/12" || r.URL.Query().Get("includeExtendedInfo") != "true" {
 			t.Errorf("unexpected query: %s", r.URL.RawQuery)
 		}
-		writeJSON(w, []ACL{{
+		writeJSON(w, map[string]any{"value": []ACL{{
 			Token: "proj/12",
 			Entries: map[string]ACLCE{"d-1": {
 				Descriptor: "d-1", Allow: 2,
 				ExtendedInfo: ACLExtendedInformation{EffectiveAllow: 2},
 			}},
-		}})
+		}}})
 	})
 	defer srv.Close()
 
@@ -152,7 +157,7 @@ func TestACEQueryRequestsEachToken(t *testing.T) {
 	requests := 0
 	c, srv := fakeOrg(t, func(w http.ResponseWriter, r *http.Request) {
 		requests++
-		writeJSON(w, []ACL{{Token: r.URL.Query().Get("token"), Entries: map[string]ACLCE{}}})
+		writeJSON(w, map[string]any{"value": []ACL{{Token: r.URL.Query().Get("token"), Entries: map[string]ACLCE{}}}})
 	})
 	defer srv.Close()
 
@@ -169,14 +174,14 @@ func TestSecurityNamespace(t *testing.T) {
 		if r.URL.Path != "/myorg/_apis/securitynamespaces/"+BuildNamespaceID {
 			t.Errorf("path = %q", r.URL.Path)
 		}
-		writeJSON(w, map[string]any{
+		writeJSON(w, map[string]any{"value": []map[string]any{{
 			"namespaceId": BuildNamespaceID,
 			"name":        "Build",
 			"actions": []ACE{
 				{Bit: 1, Name: "ViewBuilds"},
 				{Bit: 16384, Name: "AdministerBuildPermissions"},
 			},
-		})
+		}}})
 	})
 	defer srv.Close()
 

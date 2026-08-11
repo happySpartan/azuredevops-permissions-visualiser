@@ -11,11 +11,11 @@
   ],
   "groups": {"value":[{"descriptor":"g-1","displayName":"Build Team","origin":"vsts","subjectKind":"group"}]},
   "memberships": {"value":[{"membershipId":"u-1"},{"membershipId":"u-2"}]},
-  "namespace": {"namespaceId":"d34d3680-dfe5-4cc6-a949-7d9c68f73cba","name":"Build","actions":[{"bit":1,"name":"ViewBuilds","displayName":"View builds"},{"bit":2,"name":"EditBuildPipeline","displayName":"Edit build pipeline"}]},
+  "namespace": {"value":[{"namespaceId":"33344d9c-fc72-4d6f-aba5-fa317101a7e9","name":"Build","actions":[{"bit":1,"name":"ViewBuilds","displayName":"View builds"},{"bit":2,"name":"EditBuildPipeline","displayName":"Edit build pipeline"}]}]},
   "aclByToken": {
-    "PROJ-A":[{"token":"PROJ-A","acesDictionary":{"g-1":{"descriptor":"g-1","allow":1,"deny":0,"extendedInfo":{"effectiveAllow":1,"effectiveDeny":0}}}}],
-    "PROJ-A/Shared":[{"token":"PROJ-A/Shared","acesDictionary":{"u-1":{"descriptor":"u-1","allow":3,"deny":0,"extendedInfo":{"effectiveAllow":3,"effectiveDeny":0}}}}],
-    "PROJ-A/Shared/12":[{"token":"PROJ-A/Shared/12","acesDictionary":{"u-2":{"descriptor":"u-2","allow":0,"deny":2,"extendedInfo":{"effectiveAllow":0,"effectiveDeny":2}}}}],
-    "PROJ-A/Shared/13":[{"token":"PROJ-A/Shared/13","acesDictionary":{"g-1":{"descriptor":"g-1","allow":3,"deny":0,"extendedInfo":{"effectiveAllow":3,"effectiveDeny":0}}}}]
+    "PROJ-A":{"value":[{"token":"PROJ-A","acesDictionary":{"g-1":{"descriptor":"g-1","allow":1,"deny":0,"extendedInfo":{"effectiveAllow":1,"effectiveDeny":0}}}}]},
+    "PROJ-A/Shared":{"value":[{"token":"PROJ-A/Shared","acesDictionary":{"u-1":{"descriptor":"u-1","allow":3,"deny":0,"extendedInfo":{"effectiveAllow":3,"effectiveDeny":0}}}}]},
+    "PROJ-A/Shared/12":{"value":[{"token":"PROJ-A/Shared/12","acesDictionary":{"u-2":{"descriptor":"u-2","allow":0,"deny":2,"extendedInfo":{"effectiveAllow":0,"effectiveDeny":2}}}}]},
+    "PROJ-A/Shared/13":{"value":[{"token":"PROJ-A/Shared/13","acesDictionary":{"g-1":{"descriptor":"g-1","allow":3,"deny":0,"extendedInfo":{"effectiveAllow":3,"effectiveDeny":0}}}}]}
   }
 }

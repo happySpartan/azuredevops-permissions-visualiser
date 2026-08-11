@@ -54,17 +54,24 @@ type ACLExtendedInformation struct {
 }
 
 // BuildNamespaceID is the well-known GUID for the Build security namespace.
-const BuildNamespaceID = "d34d3680-dfe5-4cc6-a949-7d9c68f73cba"
+// Verified against a live Azure DevOps organization (the previously used GUID
+// d34d3680-... actually identifies AnalyticsViews).
+const BuildNamespaceID = "33344d9c-fc72-4d6f-aba5-fa317101a7e9"
 
 // SecurityNamespace retrieves a security namespace by its ID.
 func (c *Client) SecurityNamespace(ctx context.Context, namespaceID string) (*SecurityNamespace, error) {
 	q := apiVersion("7.1-preview.1")
 	q.Set("localOnly", "false")
-	out := &SecurityNamespace{}
-	if err := c.get(ctx, "/_apis/securitynamespaces/"+namespaceID, q, out); err != nil {
+	var out struct {
+		Value []SecurityNamespace `json:"value"`
+	}
+	if err := c.get(ctx, "/_apis/securitynamespaces/"+namespaceID, q, &out); err != nil {
 		return nil, err
 	}
-	return out, nil
+	if len(out.Value) == 0 {
+		return nil, fmt.Errorf("azdo: security namespace %s not found", namespaceID)
+	}
+	return &out.Value[0], nil
 }
 
 // SecurityNamespaces lists all security namespaces.
@@ -89,11 +96,13 @@ func (c *Client) ACEQuery(ctx context.Context, namespaceID string, tokens []stri
 		q.Set("token", token)
 		q.Set("includeExtendedInfo", "true")
 		q.Set("recurse", fmt.Sprint(recurse))
-		var out []ACL
+		var out struct {
+			Value []ACL `json:"value"`
+		}
 		if err := c.get(ctx, "/_apis/accesscontrollists/"+namespaceID, q, &out); err != nil {
 			return nil, err
 		}
-		for _, acl := range out {
+		for _, acl := range out.Value {
 			all[acl.Token] = acl
 		}
 	}

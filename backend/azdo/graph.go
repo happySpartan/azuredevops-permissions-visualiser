@@ -12,7 +12,9 @@ type GraphSubject struct {
 	URL         string `json:"url,omitempty"`
 }
 
-// GraphSubjects lists users or groups in the organization.
+// GraphSubjects lists users or groups in the organization. The endpoint path
+// (/users or /groups) determines the kind; passing subjectTypes as a query
+// param silently returns zero results, so it is omitted.
 func (c *Client) GraphSubjects(ctx context.Context, subjectKind string) ([]GraphSubject, error) {
 	endpoint := "/_apis/graph/users"
 	if subjectKind == "group" {
@@ -20,14 +22,12 @@ func (c *Client) GraphSubjects(ctx context.Context, subjectKind string) ([]Graph
 	}
 	var all []GraphSubject
 	q := apiVersion("7.1-preview.1")
-	q.Set("scopeDescriptor", "")
-	q.Set("subjectTypes", subjectKind)
 	for {
 		var out struct {
 			Value        []GraphSubject    `json:"value"`
 			Continuation *jsonContinuation `json:"continuationToken"`
 		}
-		if err := c.get(ctx, endpoint, q, &out); err != nil {
+		if err := c.vsspsGet(ctx, endpoint, q, &out); err != nil {
 			return nil, err
 		}
 		all = append(all, out.Value...)
@@ -50,7 +50,7 @@ func (c *Client) GraphMemberships(ctx context.Context, subjectDescriptor string)
 	q := apiVersion("7.1-preview.1")
 	q.Set("direction", "down")
 	q.Set("depth", "1") // direct members only; caller expands nested on demand
-	if err := c.get(ctx, "/_apis/graph/memberships/"+subjectDescriptor, q, &out); err != nil {
+	if err := c.vsspsGet(ctx, "/_apis/graph/memberships/"+subjectDescriptor, q, &out); err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(out.Value))

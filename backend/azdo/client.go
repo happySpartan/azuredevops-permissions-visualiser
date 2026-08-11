@@ -29,6 +29,11 @@ const AzureDevOpsResourceID = "499b84ac-1321-427f-aa17-267ca6975798"
 // DefaultBaseURL is the Azure DevOps Services host for organization-scoped calls.
 const DefaultBaseURL = "https://dev.azure.com"
 
+// VSSPSBaseURL hosts the Graph and identity APIs, which are not exposed on the
+// main dev.azure.com host. Graph endpoints return a 404 "controller not found"
+// when called against DefaultBaseURL.
+const VSSPSBaseURL = "https://vssps.dev.azure.com"
+
 // HTTPClient executes HTTP requests. It is replaced in tests.
 type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
@@ -91,6 +96,7 @@ func (p *AzCLITokenProvider) Token(ctx context.Context) (string, error) {
 type Client struct {
 	org        string
 	baseURL    string
+	vsspsURL   string
 	httpClient HTTPClient
 	token      TokenProvider
 	authHeader string // "Bearer" by default; overridable in tests
@@ -111,6 +117,9 @@ func WithHTTPClient(h HTTPClient) Option { return func(c *Client) { c.httpClient
 
 // WithBaseURL overrides the Azure DevOps host.
 func WithBaseURL(u string) Option { return func(c *Client) { c.baseURL = strings.TrimRight(u, "/") } }
+
+// WithVSSPSURL overrides the VSSPS (Graph/identity) host.
+func WithVSSPSURL(u string) Option { return func(c *Client) { c.vsspsURL = strings.TrimRight(u, "/") } }
 
 // WithTokenProvider overrides the token source.
 func WithTokenProvider(t TokenProvider) Option { return func(c *Client) { c.token = t } }
@@ -137,6 +146,7 @@ func NewClient(org string, opts ...Option) (*Client, error) {
 	c := &Client{
 		org:        org,
 		baseURL:    DefaultBaseURL,
+		vsspsURL:   VSSPSBaseURL,
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 		token:      NewAzCLITokenProvider(),
 		authHeader: "Bearer",
@@ -169,12 +179,13 @@ func (c *Client) tokenFor(ctx context.Context) (string, error) {
 }
 
 // request builds an authenticated GET or POST request against the org URL.
-func (c *Client) request(ctx context.Context, method, apiPath string, query url.Values, body any) (*http.Request, error) {
+// host is one of baseURL or vsspsURL.
+func (c *Client) request(ctx context.Context, method, host, apiPath string, query url.Values, body any) (*http.Request, error) {
 	tok, err := c.tokenFor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	u := c.baseURL + "/" + c.org + apiPath
+	u := host + "/" + c.org + apiPath
 	if query != nil {
 		u += "?" + query.Encode()
 	}
@@ -193,6 +204,11 @@ func (c *Client) request(ctx context.Context, method, apiPath string, query url.
 	req.Header.Set("Authorization", c.authHeader+" "+tok)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
+	// Azure DevOps passes an Entra access token through for Microsoft
+	// (personal) accounts only when this header is set; without it dev.azure.com
+	// redirects to its sign-in page with a 3xx even when the token is valid.
+	// The Azure CLI's azure-devops extension sends it unconditionally; mirror that.
+	req.Header.Set("X-VSS-ForceMsaPassThrough", "true")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -233,9 +249,19 @@ func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, err
 	return nil, lastErr
 }
 
-// get executes an authenticated GET and decodes JSON into out.
+// get executes an authenticated GET against the org host and decodes JSON.
 func (c *Client) get(ctx context.Context, apiPath string, query url.Values, out any) error {
-	req, err := c.request(ctx, http.MethodGet, apiPath, query, nil)
+	return c.getOn(ctx, c.baseURL, apiPath, query, out)
+}
+
+// vsspsGet executes an authenticated GET against the VSSPS host (Graph and
+// identity APIs, which are not exposed on the org host) and decodes JSON.
+func (c *Client) vsspsGet(ctx context.Context, apiPath string, query url.Values, out any) error {
+	return c.getOn(ctx, c.vsspsURL, apiPath, query, out)
+}
+
+func (c *Client) getOn(ctx context.Context, host, apiPath string, query url.Values, out any) error {
+	req, err := c.request(ctx, http.MethodGet, host, apiPath, query, nil)
 	if err != nil {
 		return err
 	}

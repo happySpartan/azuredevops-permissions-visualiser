@@ -66,7 +66,7 @@ func TestRecordedSnapshotCollectionCommitsQueryableAnalysis(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	client, err := azdo.NewClient("org", azdo.WithHTTPClient(srv.Client()), azdo.WithBaseURL(srv.URL), azdo.WithTokenProvider(staticTok{}), azdo.WithRetry(0, 0, 0))
+	client, err := azdo.NewClient("org", azdo.WithHTTPClient(srv.Client()), azdo.WithBaseURL(srv.URL), azdo.WithVSSPSURL(srv.URL), azdo.WithTokenProvider(staticTok{}), azdo.WithRetry(0, 0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
