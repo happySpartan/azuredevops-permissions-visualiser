@@ -7,9 +7,11 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend"
@@ -146,8 +148,25 @@ func apiRoutes(st *store.Store) http.Handler {
 		json.NewEncoder(w).Encode(collection.Status())
 	})
 
+	mux.HandleFunc("/api/run/cancel", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := collection.Cancel(); errors.Is(err, collect.ErrCollectionNotRunning) {
+			httpError(w, http.StatusConflict, err)
+			return
+		} else if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{"status": "cancelling"})
+	})
+
 	mux.HandleFunc("/api/run/delete", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if collection.Status().State == collect.StateRunning {
+			httpError(w, http.StatusConflict, collect.ErrCollectionRunning)
+			return
+		}
 		if err := st.DeleteAll(r.Context()); err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -183,6 +202,10 @@ func apiRoutes(st *store.Store) http.Handler {
 		offset, err := queryInt(r, "offset", 0)
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		if limit < 1 || limit > 1000 || offset < 0 {
+			httpError(w, http.StatusBadRequest, errors.New("limit must be between 1 and 1000 and offset must be non-negative"))
 			return
 		}
 		page, err := st.SubjectsByRun(r.Context(), runID, store.SubjectQuery{
@@ -419,7 +442,52 @@ func apiRoutes(st *store.Store) http.Handler {
 		}
 	})
 
-	return mux
+	return enforceAPIMethods(mux)
+}
+
+func enforceAPIMethods(next http.Handler) http.Handler {
+	methods := map[string]string{
+		"/api/run/collect": http.MethodPost,
+		"/api/run/cancel":  http.MethodPost,
+		"/api/run/delete":  http.MethodPost,
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			allowed := methods[r.URL.Path]
+			if allowed == "" {
+				allowed = http.MethodGet
+			}
+			w.Header().Set("Allow", allowed+", OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		allowed := methods[r.URL.Path]
+		if allowed == "" {
+			allowed = http.MethodGet
+		}
+		if r.Method != allowed {
+			w.Header().Set("Allow", allowed)
+			httpError(w, http.StatusMethodNotAllowed, errors.New(allowed+" required"))
+			return
+		}
+		if allowed == http.MethodPost && !sameOriginRequest(r) {
+			httpError(w, http.StatusForbidden, errors.New("cross-origin mutation rejected"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func sameOriginRequest(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 func latestRunID(w http.ResponseWriter, r *http.Request, st *store.Store) (int64, bool) {

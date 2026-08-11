@@ -48,6 +48,8 @@ JSON API (v1):
   background and concurrent attempts return `409 Conflict`.
 - `GET /api/run/collection-status` — report the active collection phase,
   lifecycle state, completion counts, or actionable failure details.
+- `POST /api/run/cancel` — request cancellation of the active collection; its
+  partial transaction is discarded and the previous completed run is retained.
 - `POST /api/run/delete` — delete all collected data.
 - `GET /api/explorer/subjects` — search and page through collected users and
   groups (`search`, `kind`, `limit`, and `offset` query parameters).
@@ -107,8 +109,10 @@ make run        # Go backend on :8080
 ```sh
 make docker     # multi-stage build -> azuredevops-permissions-visualiser:latest
 docker run --rm -p 127.0.0.1:8080:8080 \
-  -e AZDO_ORG=https://dev.azure.com/your-org \
-  -v "$HOME/.azure:/root/.azure:ro" \
+  --user "$(id -u):$(id -g)" \
+  -e AZDO_ORG=your-org \
+  -v "$HOME/.azure:/home/visualiser/.azure:ro" \
+  -v "$HOME/.local/share/azuredevops-permissions-visualiser:/data" \
   azuredevops-permissions-visualiser:latest
 ```
 
@@ -117,7 +121,27 @@ to `127.0.0.1` keeps the application host-local. Mount a dedicated Azure CLI
 configuration directory read-only; credentials are never copied into the image.
 The runtime image includes Azure CLI because collection obtains its access token
 through `az account get-access-token`; the host's credential directory supplies
-the authenticated account state.
+the authenticated account state. On Linux, run with the host user's numeric UID
+and GID as shown so Azure CLI can read private credential-cache files while the
+mount remains read-only. Create the host data directory before starting the
+container. The image itself still defaults to the unprivileged `visualiser` user.
+
+## Continuous integration and releases
+
+Every push and pull request runs Go tests with the race detector, `go vet`,
+frontend tests/typechecking/build, dependency audit, release cross-compilation,
+and a Trivy scan of the container image. Version tags matching `v*.*.*` publish
+Linux x64 and Windows x64 binaries, SHA-256 checksums, and an SBOM/provenance-
+enabled container image to GitHub Packages.
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The application runs as the unprivileged `visualiser` user in the container.
+Azure CLI credentials are mounted read-only; collected SQLite data uses the
+separate writable `/data` volume.
 
 ## Design decisions
 

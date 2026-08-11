@@ -263,6 +263,47 @@ func TestPerViewCSVExportsProtectAgainstFormulaInjection(t *testing.T) {
 	}
 }
 
+func TestAllCSVExportsProtectAgainstFormulaInjection(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	runID, _ := s.BeginRun(ctx, "acme")
+	tx, _ := s.BeginTx(ctx, runID)
+	_ = tx.AddProject(ctx, "p1", "=Alpha")
+	_ = tx.AddSubject(ctx, "g-1", "@Admins", "vsts", "group")
+	_ = tx.AddSubject(ctx, "u-1", "+Alice", "aad", "user")
+	_ = tx.AddMembership(ctx, "g-1", "u-1")
+	_ = tx.AddPermissionAction(ctx, 1, "-ViewBuilds", "=View builds")
+	_ = tx.AddAssignmentExtended(ctx, "p1", "u-1", 1, 0, 0, 0, 1, 0)
+	_ = tx.Commit()
+	_ = s.CompleteRun(ctx, runID, tx.Counts())
+
+	exports := map[string]func(*bytes.Buffer) error{
+		"effective":   func(buf *bytes.Buffer) error { return s.ExportEffectivePermissionsCSV(ctx, runID, buf) },
+		"subject":     func(buf *bytes.Buffer) error { return s.ExportSubjectPermissionsCSV(ctx, runID, "u-1", buf) },
+		"assignments": func(buf *bytes.Buffer) error { return s.ExportSubjectAssignmentsCSV(ctx, runID, buf) },
+		"group":       func(buf *bytes.Buffer) error { return s.ExportGroupMembershipCSV(ctx, runID, "g-1", buf) },
+	}
+	for name, export := range exports {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := export(&buf); err != nil {
+				t.Fatal(err)
+			}
+			records, err := csv.NewReader(&buf).ReadAll()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, row := range records[1:] {
+				for _, value := range row {
+					if value != "" && strings.ContainsRune("=+-@\t\r\n", rune(value[0])) {
+						t.Fatalf("unsafe CSV value %q in row %v", value, row)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestExportEmptyRun(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

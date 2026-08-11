@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -14,6 +15,30 @@ func openTestStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+func TestOpenSecuresDataDirectoryAndDatabase(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	path := filepath.Join(dir, "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("dir mode = %o, want 700", got)
+	}
+	if got := dbInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("db mode = %o, want 600", got)
+	}
 }
 
 func TestBeginAndCompleteRun(t *testing.T) {

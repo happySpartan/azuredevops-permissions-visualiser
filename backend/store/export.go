@@ -171,11 +171,11 @@ func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, 
 	// Header
 	header := []string{
 		"subject_descriptor", "subject_display_name", "subject_kind", "subject_origin",
-		"project", "resource_token",
+		"project", "resource_token", "resource_type",
 		"permission_name", "permission_display_name",
 		"state", "direct", "inherited", "via_group",
 	}
-	if err := cw.Write(header); err != nil {
+	if err := cw.Write(safeCSVRecord(header)); err != nil {
 		return fmt.Errorf("store: export header: %w", err)
 	}
 
@@ -216,7 +216,7 @@ func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, 
 				boolStr(inherited),
 				boolStr(viaGroup),
 			}
-			if err := cw.Write(row); err != nil {
+			if err := cw.Write(safeCSVRecord(row)); err != nil {
 				return fmt.Errorf("store: export row: %w", err)
 			}
 		}
@@ -244,11 +244,11 @@ func (s *Store) ExportSubjectAssignmentsCSV(ctx context.Context, runID int64, w 
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 
-	if err := cw.Write([]string{
+	if err := cw.Write(safeCSVRecord([]string{
 		"descriptor", "display_name", "kind", "origin",
 		"security_token", "allow_mask", "deny_mask",
 		"effective_allow_mask", "effective_deny_mask",
-	}); err != nil {
+	})); err != nil {
 		return fmt.Errorf("store: export header: %w", err)
 	}
 
@@ -262,14 +262,14 @@ func (s *Store) ExportSubjectAssignmentsCSV(ctx context.Context, runID int64, w 
 			return fmt.Errorf("store: export scan: %w", err)
 		}
 
-		if err := cw.Write([]string{
+		if err := cw.Write(safeCSVRecord([]string{
 			descriptor, displayName.String, kind.String, origin.String,
 			token,
 			fmt.Sprintf("0x%X", uint64(allow)),
 			fmt.Sprintf("0x%X", uint64(deny)),
 			fmt.Sprintf("0x%X", uint64(effAllow)),
 			fmt.Sprintf("0x%X", uint64(effDeny)),
-		}); err != nil {
+		})); err != nil {
 			return fmt.Errorf("store: export row: %w", err)
 		}
 	}

@@ -101,6 +101,53 @@ func TestCollectionStatusStartsIdle(t *testing.T) {
 	}
 }
 
+func TestAPIRoutesRejectWrongMethods(t *testing.T) {
+	t.Setenv("AZDO_ORG", "")
+	handler := apiRoutes(exportTestStore(t))
+	tests := []struct{ method, path string }{
+		{http.MethodPost, "/api/run/current"},
+		{http.MethodGet, "/api/run/delete"},
+		{http.MethodPost, "/api/explorer/subjects"},
+		{http.MethodPost, "/api/run/export/assignments"},
+	}
+	for _, test := range tests {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(test.method, test.path, nil))
+		if recorder.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s status = %d, want 405", test.method, test.path, recorder.Code)
+		}
+		if recorder.Header().Get("Allow") == "" {
+			t.Errorf("%s %s missing Allow header", test.method, test.path)
+		}
+	}
+}
+
+func TestSubjectListRejectsInvalidPagination(t *testing.T) {
+	handler := apiRoutes(exportTestStore(t))
+	for _, path := range []string{
+		"/api/explorer/subjects?limit=-1",
+		"/api/explorer/subjects?limit=1001",
+		"/api/explorer/subjects?offset=-1",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusBadRequest {
+			t.Errorf("GET %s status = %d, want 400", path, recorder.Code)
+		}
+	}
+}
+
+func TestMutationRejectsCrossOriginRequests(t *testing.T) {
+	handler := apiRoutes(exportTestStore(t))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/run/delete", nil)
+	request.Header.Set("Origin", "https://attacker.example")
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", recorder.Code)
+	}
+}
+
 func TestCollectWithoutOrganizationReturnsActionableSetupError(t *testing.T) {
 	t.Setenv("AZDO_ORG", "")
 	st, err := store.Open(filepath.Join(t.TempDir(), "api.db"))

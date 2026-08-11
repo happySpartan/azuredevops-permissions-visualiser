@@ -63,6 +63,12 @@ type Store struct {
 // schema. It is the caller's responsibility to ensure the parent directory
 // exists.
 func Open(path string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("store: create data directory: %w", err)
+	}
+	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("store: secure data directory: %w", err)
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("store: open %s: %w", path, err)
@@ -76,6 +82,10 @@ func Open(path string) (*Store, error) {
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("store: secure database: %w", err)
 	}
 	return s, nil
 }

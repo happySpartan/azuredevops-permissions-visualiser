@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/azdo"
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/store"
@@ -113,11 +114,20 @@ func (c *Collector) CollectWithProgress(ctx context.Context, org string, report 
 
 	counts := tx.Counts()
 	notify(PhaseCommitting, "Committing the completed snapshot")
+	if err := ctx.Err(); err != nil {
+		tx.Abort()
+		_ = c.fail(ctx, runID, store.StatusCancelled, err)
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
 	}
-	if err := c.store.CompleteRun(ctx, runID, counts); err != nil {
+	// Once the collected transaction commits, finalization must not be interrupted
+	// or the database could retain a complete snapshot marked as still running.
+	finalizeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.store.CompleteRun(finalizeContext, runID, counts); err != nil {
 		return nil, err
 	}
 	notify(PhaseComplete, "Collection complete")
@@ -125,8 +135,15 @@ func (c *Collector) CollectWithProgress(ctx context.Context, org string, report 
 }
 
 // fail marks a run failed/cancelled and discards its data.
-func (c *Collector) fail(ctx context.Context, runID int64, status store.Status, cause error) error {
-	return c.store.FailRun(ctx, runID, status, cause.Error())
+func (c *Collector) fail(_ context.Context, runID int64, status store.Status, cause error) error {
+	if errors.Is(cause, context.Canceled) {
+		status = store.StatusCancelled
+	}
+	// The request context may already be cancelled. Cleanup must use a bounded
+	// independent context so cancellation never leaves a running run behind.
+	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return c.store.FailRun(cleanupContext, runID, status, cause.Error())
 }
 
 // collectProjects discovers all projects in the organization.

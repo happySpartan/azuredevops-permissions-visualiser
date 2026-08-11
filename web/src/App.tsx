@@ -18,7 +18,7 @@ interface Run {
 }
 
 interface CollectionStatus {
-  state: 'idle' | 'running' | 'succeeded' | 'failed'
+  state: 'idle' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   phase?: string
   message?: string
   error?: string
@@ -111,6 +111,15 @@ function App() {
     }
   }
 
+  async function cancelCollection() {
+    try {
+      await api('/api/run/cancel', { method: 'POST' })
+      await loadCollectionStatus()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught))
+    }
+  }
+
   async function deleteData() {
     if (!window.confirm('Delete all locally collected permission data?')) return
     setBusy(true)
@@ -135,6 +144,7 @@ function App() {
         </div>
         {run && <div className="org-pill"><span className="status-dot" />{run.Org}</div>}
         <div className="topbar-actions">
+          {busy && <button className="button secondary" onClick={() => void cancelCollection()}>Cancel</button>}
           <button className="button secondary" disabled={busy} onClick={() => void collect()}>
             {busy ? 'Collecting…' : run ? 'Run again' : 'Collect organization'}
           </button>

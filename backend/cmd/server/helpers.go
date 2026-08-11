@@ -29,5 +29,5 @@ func newCollector(client *azdo.Client, st *store.Store) *collect.Collector {
 
 // ensureDataDir creates the store data directory if missing.
 func ensureDataDir() error {
-	return os.MkdirAll(store.DefaultDataDir(), 0o755)
+	return os.MkdirAll(store.DefaultDataDir(), 0o700)
 }

@@ -65,6 +65,32 @@ func TestManagerPublishesActionableFailure(t *testing.T) {
 	}
 }
 
+func TestManagerCancelStopsRunningCollection(t *testing.T) {
+	manager := NewManager()
+	started := make(chan struct{})
+	if err := manager.Start(context.Background(), func(ctx context.Context, _ ProgressFunc) (*Result, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := manager.Cancel(); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	status := waitForState(t, manager, StateCancelled)
+	if status.Error != "" {
+		t.Fatalf("cancelled status exposed error %q", status.Error)
+	}
+}
+
+func TestManagerCancelWhenIdleReturnsNotRunning(t *testing.T) {
+	if err := NewManager().Cancel(); !errors.Is(err, ErrCollectionNotRunning) {
+		t.Fatalf("Cancel error = %v, want ErrCollectionNotRunning", err)
+	}
+}
+
 func waitForState(t *testing.T, manager *Manager, want State) Status {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

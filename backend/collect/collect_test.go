@@ -170,6 +170,41 @@ func TestCollectReportsOrderedPhases(t *testing.T) {
 	}
 }
 
+func TestCancelledCollectionMarksRunCancelledAndDiscardsPartialData(t *testing.T) {
+	f := &fakeServer{}
+	c, st, srv := newCollector(t, f)
+	defer srv.Close()
+	runID, err := st.BeginRun(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := st.BeginTx(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.AddProject(context.Background(), "p1", "Alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.fail(context.Background(), runID, store.StatusFailed, context.Canceled); err != nil {
+		t.Fatal(err)
+	}
+
+	var status string
+	var projects int
+	if err := st.DB().QueryRow(`SELECT status FROM runs WHERE id=?`, runID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM projects`).Scan(&projects); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(store.StatusCancelled) || projects != 0 {
+		t.Fatalf("status=%q projects=%d, want cancelled and no partial data", status, projects)
+	}
+}
+
 func TestCollectSuccess(t *testing.T) {
 	f := &fakeServer{}
 	c, st, srv := newCollector(t, f)
