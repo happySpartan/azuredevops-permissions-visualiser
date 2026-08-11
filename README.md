@@ -29,10 +29,13 @@ to `127.0.0.1` by default (single-administrator, local/private).
 make web       # build the React frontend
 make backend   # build the Go binary -> bin/visualiser
 make build     # both of the above
+make release   # Linux x64 and Windows x64 binaries -> dist/
 make run       # run the backend (serves the built frontend)
 ```
 
 Visit `http://127.0.0.1:8080`. The `/api/health` endpoint reports status.
+The native executable opens this URL in the default browser. Set `NO_BROWSER=1`
+to disable automatic browser launch (recommended for containers and services).
 
 JSON API (v1):
 
@@ -84,10 +87,18 @@ make run        # Go backend on :8080
 
 ```sh
 make docker     # multi-stage build -> azuredevops-permissions-visualiser:latest
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e AZDO_ORG=https://dev.azure.com/your-org \
+  -v "$HOME/.azure:/root/.azure:ro" \
+  azuredevops-permissions-visualiser:latest
 ```
 
-The image binds to localhost and mounts a dedicated Azure CLI configuration
-directory read-only (never copying credentials into the image).
+The image listens inside its private container network. Publishing it explicitly
+to `127.0.0.1` keeps the application host-local. Mount a dedicated Azure CLI
+configuration directory read-only; credentials are never copied into the image.
+The runtime image includes Azure CLI because collection obtains its access token
+through `az account get-access-token`; the host's credential directory supplies
+the authenticated account state.
 
 ## Design decisions
 

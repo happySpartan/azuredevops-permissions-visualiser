@@ -1,4 +1,4 @@
-.PHONY: web backend build run dev clean docker
+.PHONY: web backend build release run dev clean docker
 
 # Build the React/TS frontend into backend/web/dist
 web:
@@ -10,6 +10,12 @@ backend:
 
 # Build both: frontend then backend
 build: web backend
+
+# Build the supported native release binaries after producing embedded assets.
+release: web
+	mkdir -p dist
+	cd backend && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o ../dist/visualiser-linux-amd64 ./cmd/server/
+	cd backend && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o ../dist/visualiser-windows-amd64.exe ./cmd/server/
 
 # Run the backend (serves the built frontend). Requires backend/web/dist to exist.
 run:
@@ -23,6 +29,7 @@ dev:
 .PHONY: clean
 clean:
 	rm -rf bin
+	rm -rf dist
 	rm -rf backend/web/dist
 	rm -rf web/node_modules web/dist
 

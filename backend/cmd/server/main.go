@@ -59,13 +59,17 @@ func main() {
 	}
 
 	addr := bind + ":" + port
-	log.Printf("Listening on http://%s (data: %s)", addr, store.DefaultDBPath())
+	url := "http://" + addr
+	log.Printf("Listening on %s (data: %s)", url, store.DefaultDBPath())
 
 	go func() {
 		if err := http.ListenAndServe(addr, mux); err != nil {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
+	if os.Getenv("NO_BROWSER") == "" && bind == "127.0.0.1" {
+		openBrowser(url)
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

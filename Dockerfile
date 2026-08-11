@@ -11,23 +11,21 @@ RUN npm run build
 
 # ---- Stage 2: build the Go backend ----
 FROM golang:1.25-alpine AS build
-WORKDIR /src
-# Copy go.mod first for layer caching.
-COPY backend/go.mod backend/go.sum* ./
-COPY backend/ .
-# Copy the built frontend (backend/web/dist is produced by Stage 1 under /src/web).
 WORKDIR /src/backend
+# Copy go.mod first for layer caching.
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+COPY backend/ ./
 # Frontend assets are produced in the web stage; copy from that stage here.
 COPY --from=web /src/backend/web/dist ./web/dist
-RUN go mod download
 RUN CGO_ENABLED=0 go build -o /out/visualiser ./cmd/server/
 
-# ---- Stage 3: distroless runtime ----
-FROM gcr.io/distroless/static-debian12:nonroot
+# ---- Stage 3: runtime with the required Azure CLI ----
+FROM mcr.microsoft.com/azure-cli:2.89.0-azurelinux3.0
 COPY --from=build /out/visualiser /visualiser
 EXPOSE 8080
 ENV PORT=8080
-# Single-administrator local use: bind to localhost by default.
-ENV BIND_ADDR=127.0.0.1
-USER nonroot
+# Listen inside the container; publish it on the host loopback interface only.
+ENV BIND_ADDR=0.0.0.0
+ENV NO_BROWSER=1
 ENTRYPOINT ["/visualiser"]
