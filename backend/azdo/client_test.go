@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -200,6 +201,72 @@ func TestErrorDecoding(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	if err.Error() != "azdo: HTTP 403: Access denied" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestProjectsRedirectToSignIn(t *testing.T) {
+	// Azure DevOps redirects to its sign-in page when the caller's bearer
+	// token is not accepted. When the client does not auto-follow redirects,
+	// it must surface a clear, actionable error rather than decoding the HTML.
+	c, srv := fakeOrg(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://spsprodneu1.vssps.visualstudio.com/_signin?realm=dev.azure.com")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusFound)
+		_, _ = w.Write([]byte("<html><head><title>Object moved</title></head><body></body></html>"))
+	})
+	defer srv.Close()
+	// Do not let the test HTTP client follow the redirect, so the response
+	// returns to get() as a 3xx for the redirect branch to handle.
+	srv.Client().CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+	_, err := c.Projects(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	want := "azdo: HTTP 302: authentication required (Azure DevOps redirected to its sign-in page);"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(err.Error(), "invalid character") {
+		t.Fatalf("error leaks HTML decode failure instead of actionable message: %v", err)
+	}
+}
+
+func TestHTMLPageInsteadOfJSON(t *testing.T) {
+	// A 200 with an HTML body (e.g. a captive sign-in/error page) must be
+	// reported as an auth problem, not left to json.Decode to fail on.
+	c, srv := fakeOrg(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html><body>Please sign in</body></html>"))
+	})
+	defer srv.Close()
+
+	_, err := c.Projects(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "HTML") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHTMLErrorPage(t *testing.T) {
+	// An HTML authorization-error page (for example Azure DevOps' sign-in page
+	// served with a non-2xx status) gets a clear message instead of raw HTML.
+	c, srv := fakeOrg(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("<html><body>TF400813: access denied</body></html>"))
+	})
+	defer srv.Close()
+
+	_, err := c.Projects(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "HTML error page") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

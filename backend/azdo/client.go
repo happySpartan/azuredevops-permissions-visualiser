@@ -244,10 +244,32 @@ func (c *Client) get(ctx context.Context, apiPath string, query url.Values, out 
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
+	switch {
+	case resp.StatusCode >= 300 && resp.StatusCode < 400:
+		// Azure DevOps redirects to its sign-in page when it cannot authenticate
+		// the caller (e.g. expired/invalid token or no access to the org). The
+		// body is HTML, so never try to decode it as JSON.
+		msg := "authentication required (Azure DevOps returned a redirect)"
+		if strings.Contains(resp.Header.Get("Location"), "_signin") {
+			msg = "authentication required (Azure DevOps redirected to its sign-in page)"
+		}
+		return fmt.Errorf("azdo: HTTP %d: %s; verify you are signed in with `az login` and can access the organization", resp.StatusCode, msg)
+	case resp.StatusCode >= 400:
 		return c.decodeError(resp)
 	}
+	if err := ensureJSON(resp); err != nil {
+		return err
+	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// ensureJSON guards against a success-status response that is actually an HTML
+// page (for example a sign-in or error page) instead of JSON.
+func ensureJSON(resp *http.Response) error {
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
+		return errors.New("azdo: Azure DevOps returned an HTML page instead of JSON (authentication or authorization problem)")
+	}
+	return nil
 }
 
 // decodeError builds a descriptive error from a non-2xx response.
@@ -266,6 +288,11 @@ func (c *Client) decodeError(resp *http.Response) error {
 	}
 	if len(msg) > 300 {
 		msg = msg[:300]
+	}
+	// Azure DevOps can return an HTML page for authorization failures.
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") ||
+		strings.HasPrefix(strings.TrimSpace(string(body)), "<") {
+		return fmt.Errorf("azdo: HTTP %d: Azure DevOps returned an HTML error page (authentication or authorization problem); verify `az login` and organization access", resp.StatusCode)
 	}
 	return fmt.Errorf("azdo: HTTP %d: %s", resp.StatusCode, msg)
 }
