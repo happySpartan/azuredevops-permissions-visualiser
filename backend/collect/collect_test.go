@@ -27,6 +27,7 @@ type fakeServer struct {
 	groupsErr    bool
 	membersErr   bool
 	aclErr       bool
+	aclOnlyGroup bool // ACL identity is omitted by the Graph groups listing
 	projectCalls int
 }
 
@@ -110,7 +111,13 @@ func (f *fakeServer) handler() http.Handler {
 		values := []map[string]any{}
 		if descriptors != "" {
 			for _, d := range strings.Split(descriptors, ",") {
-				values = append(values, map[string]any{"descriptor": d, "subjectDescriptor": d})
+				identity := map[string]any{"descriptor": d, "subjectDescriptor": d}
+				if d == "Microsoft.TeamFoundation.Identity;acl-only" {
+					identity["subjectDescriptor"] = "vssgp.acl-only"
+					identity["providerDisplayName"] = "[org]\\Project Collection Administrators"
+					identity["isContainer"] = true
+				}
+				values = append(values, identity)
 			}
 		}
 		writeJSON(w, map[string]any{"value": values})
@@ -125,7 +132,11 @@ func (f *fakeServer) handler() http.Handler {
 		entries := map[string]azdo.ACLCE{}
 		switch token {
 		case "PROJ-A":
-			entries["g-1"] = azdo.ACLCE{Descriptor: "g-1", Allow: 3, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 3}}
+			descriptor := "g-1"
+			if f.aclOnlyGroup {
+				descriptor = "Microsoft.TeamFoundation.Identity;acl-only"
+			}
+			entries[descriptor] = azdo.ACLCE{Descriptor: descriptor, Allow: 3, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 3}}
 		case "PROJ-A/Shared":
 			entries["u-1"] = azdo.ACLCE{Descriptor: "u-1", Allow: 1, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 1}}
 		case "PROJ-A/Shared/12":
@@ -246,6 +257,43 @@ func TestCollectSuccess(t *testing.T) {
 	}
 	if run.Status != store.StatusComplete {
 		t.Fatalf("status = %s, want complete", run.Status)
+	}
+}
+
+func TestCollectAddsACLIdentitiesOmittedFromGraphListings(t *testing.T) {
+	f := &fakeServer{aclOnlyGroup: true}
+	c, st, srv := newCollector(t, f)
+	defer srv.Close()
+
+	res, err := c.Collect(context.Background(), "org")
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if res.Counts.Subjects != 3 {
+		t.Fatalf("subject count = %d, want Graph subjects plus ACL-only identity", res.Counts.Subjects)
+	}
+
+	var name, kind string
+	err = st.DB().QueryRow(`SELECT display_name, subject_kind FROM subjects WHERE run_id=? AND descriptor=?`,
+		res.RunID, "vssgp.acl-only").Scan(&name, &kind)
+	if err != nil {
+		t.Fatalf("ACL-only subject not stored: %v", err)
+	}
+	if name != "[org]\\Project Collection Administrators" || kind != "group" {
+		t.Fatalf("ACL-only subject = (%q, %q), want resolved group metadata", name, kind)
+	}
+
+	var unresolved int
+	err = st.DB().QueryRow(`
+		SELECT COUNT(*)
+		FROM assignments a
+		LEFT JOIN subjects s ON s.run_id=a.run_id AND s.descriptor=a.descriptor
+		WHERE a.run_id=? AND s.descriptor IS NULL`, res.RunID).Scan(&unresolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unresolved != 0 {
+		t.Fatalf("unresolved assignment subjects = %d, want 0", unresolved)
 	}
 }
 

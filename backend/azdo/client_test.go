@@ -185,7 +185,9 @@ func TestIdentityGraphDescriptors(t *testing.T) {
 			t.Errorf("expected general descriptors in call, got %q", got)
 		}
 		writeJSON(w, map[string]any{"value": []map[string]string{
-			{"descriptor": "Microsoft.TeamFoundation.Identity;S-1-9-1", "subjectDescriptor": "vssgp.abc"},
+			// Azure DevOps may canonicalize the returned storage descriptor, so
+			// it is not necessarily byte-for-byte equal to the requested one.
+			{"descriptor": "Microsoft.TeamFoundation.Identity;canonical-1", "subjectDescriptor": "vssgp.abc"},
 			{"descriptor": "Microsoft.TeamFoundation.Identity;S-1-9-2", "subjectDescriptor": "vssgp.def"},
 		}})
 	})
@@ -200,8 +202,8 @@ func TestIdentityGraphDescriptors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IdentityGraphDescriptors: %v", err)
 	}
-	if got["Microsoft.TeamFoundation.Identity;S-1-9-1"] != "vssgp.abc" ||
-		got["Microsoft.TeamFoundation.Identity;S-1-9-2"] != "vssgp.def" {
+	if got["Microsoft.TeamFoundation.Identity;S-1-9-1"].Descriptor != "vssgp.abc" ||
+		got["Microsoft.TeamFoundation.Identity;S-1-9-2"].Descriptor != "vssgp.def" {
 		t.Fatalf("unexpected mapping: %+v", got)
 	}
 	if _, ok := got["vssgp.alreadyGraph"]; ok {

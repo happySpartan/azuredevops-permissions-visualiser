@@ -17,12 +17,22 @@ import (
 // the SID in a general descriptor does not always match the SID a vssgp
 // descriptor base64-encodes). The identity API is the authoritative translator.
 //
+// ResolvedIdentity carries the Graph identity metadata returned by the legacy
+// identity API. That API includes built-in collection groups which may be
+// omitted from the Graph groups listing even though they own ACL entries.
+type ResolvedIdentity struct {
+	Descriptor  string
+	DisplayName string
+	Origin      string
+	SubjectKind string
+}
+
 // IdentityGraphDescriptors resolves each general descriptor to its Graph
-// descriptor via the /_apis/Identities endpoint and returns a map. Descriptors
+// identity via the /_apis/Identities endpoint and returns a map. Descriptors
 // that cannot be resolved are omitted from the result. Requests are batched to
 // stay within the API's per-call descriptor limit.
-func (c *Client) IdentityGraphDescriptors(ctx context.Context, general []string) (map[string]string, error) {
-	out := make(map[string]string)
+func (c *Client) IdentityGraphDescriptors(ctx context.Context, general []string) (map[string]ResolvedIdentity, error) {
+	out := make(map[string]ResolvedIdentity)
 	// Deduplicate and drop anything that is already a Graph descriptor.
 	seen := make(map[string]bool)
 	var need []string
@@ -51,8 +61,8 @@ func (c *Client) IdentityGraphDescriptors(ctx context.Context, general []string)
 		if err != nil {
 			return nil, err
 		}
-		for general, graph := range resolved {
-			out[general] = graph
+		for general, identity := range resolved {
+			out[general] = identity
 		}
 	}
 	return out, nil
@@ -71,11 +81,14 @@ func queryLen(batch []string, extra string) int {
 	return n
 }
 
-func (c *Client) identityGraphDescriptorsBatch(ctx context.Context, batch []string) (map[string]string, error) {
+func (c *Client) identityGraphDescriptorsBatch(ctx context.Context, batch []string) (map[string]ResolvedIdentity, error) {
 	var out struct {
 		Value []struct {
-			Descriptor        string `json:"descriptor"` // general descriptor
-			SubjectDescriptor string `json:"subjectDescriptor"`
+			Descriptor          string `json:"descriptor"` // general descriptor
+			SubjectDescriptor   string `json:"subjectDescriptor"`
+			ProviderDisplayName string `json:"providerDisplayName"`
+			CustomDisplayName   string `json:"customDisplayName"`
+			IsContainer         bool   `json:"isContainer"`
 		} `json:"value"`
 	}
 	q := url.Values{"api-version": {"7.1-preview.1"}}
@@ -83,15 +96,42 @@ func (c *Client) identityGraphDescriptorsBatch(ctx context.Context, batch []stri
 	if err := c.vsspsGet(ctx, "/_apis/Identities", q, &out); err != nil {
 		return nil, fmt.Errorf("azdo: identity resolution: %w", err)
 	}
-	resolved := make(map[string]string, len(out.Value))
-	for _, idn := range out.Value {
+	resolved := make(map[string]ResolvedIdentity, len(out.Value))
+	for i, idn := range out.Value {
 		general := idn.Descriptor
+		// The endpoint preserves request order but can canonicalize storage
+		// descriptors in its response (observed for built-in collection groups).
+		// Keep the requested descriptor as the lookup key in that case so callers
+		// can translate the exact descriptor present in the ACL.
+		if i < len(batch) && general != batch[i] {
+			general = batch[i]
+		}
 		if general == "" || idn.SubjectDescriptor == "" {
 			continue
 		}
-		resolved[general] = idn.SubjectDescriptor
+		displayName := idn.CustomDisplayName
+		if displayName == "" {
+			displayName = idn.ProviderDisplayName
+		}
+		kind := "user"
+		if idn.IsContainer {
+			kind = "group"
+		}
+		resolved[general] = ResolvedIdentity{
+			Descriptor:  idn.SubjectDescriptor,
+			DisplayName: displayName,
+			Origin:      graphDescriptorOrigin(idn.SubjectDescriptor),
+			SubjectKind: kind,
+		}
 	}
 	return resolved, nil
+}
+
+func graphDescriptorOrigin(descriptor string) string {
+	if i := strings.IndexByte(descriptor, '.'); i > 0 {
+		return descriptor[:i]
+	}
+	return ""
 }
 
 // isGraphDescriptor reports whether d already uses the Graph descriptor prefix.

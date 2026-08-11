@@ -261,16 +261,27 @@ func (c *Collector) collectACLs(ctx context.Context, tx *store.Tx) error {
 			}
 		}
 	}
-	graphByGeneral, err := c.client.IdentityGraphDescriptors(ctx, general)
+	identityByGeneral, err := c.client.IdentityGraphDescriptors(ctx, general)
 	if err != nil {
 		return fmt.Errorf("collect: resolve acl descriptors: %w", err)
+	}
+	// Some built-in collection groups are returned by the identity endpoint but
+	// omitted from the Graph groups listing. Persist resolved ACL identities too
+	// so every assignment can be explored through a subject.
+	for _, identity := range identityByGeneral {
+		if identity.Descriptor == "" {
+			continue
+		}
+		if err := tx.AddSubject(ctx, identity.Descriptor, identity.DisplayName, identity.Origin, identity.SubjectKind); err != nil {
+			return err
+		}
 	}
 	// Persist entries using the Graph descriptor when resolvable.
 	for token, acl := range acls {
 		for _, e := range acl.Entries {
 			graphDesc := e.Descriptor
-			if g, ok := graphByGeneral[e.Descriptor]; ok && g != "" {
-				graphDesc = g
+			if identity, ok := identityByGeneral[e.Descriptor]; ok && identity.Descriptor != "" {
+				graphDesc = identity.Descriptor
 			}
 			info := e.ExtendedInfo
 			if err := tx.AddAssignmentExtended(ctx, token, graphDesc, e.Allow, e.Deny,
