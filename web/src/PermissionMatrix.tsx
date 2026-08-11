@@ -54,7 +54,7 @@ export default function PermissionMatrix() {
   }, [projectId, bit])
 
   return <section>
-    <div className="page-heading"><div><p className="eyebrow">Scoped comparison</p><h1>Permission matrix</h1><p>Compare one Build permission across subjects and secured resources in one project.</p></div></div>
+    <div className="page-heading"><div><p className="eyebrow">Scoped comparison</p><h1>Permission matrix</h1><p>Compare one Build permission across subjects and secured resources in one project.</p></div>{projectId && <a className="button secondary" href={`/api/explorer/matrix/export?${new URLSearchParams({ projectId, bit: String(bit) })}`} download>Export CSV</a>}</div>
     <div className="toolbar panel matrix-toolbar">
       <label><span>Project</span><select value={projectId} onChange={(event) => setProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
       <label><span>Permission</span><select value={bit} onChange={(event) => setBit(Number(event.target.value))}>{actions.map((action) => <option key={action.bit} value={action.bit}>{action.displayName}</option>)}</select></label>

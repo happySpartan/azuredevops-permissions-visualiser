@@ -59,8 +59,12 @@ JSON API (v1):
   and YAML pipeline hierarchy.
 - `GET /api/explorer/resources/permissions` — show which subjects have
   effective permissions on one resource (`token`).
+- `GET /api/explorer/resources/export` — download the active resource view as
+  CSV, scoped to one resource (`token`).
 - `GET /api/explorer/matrix` — compare subjects and secured resources for one
   permission action within one project (`projectId` and `bit`).
+- `GET /api/explorer/matrix/export` — download the active matrix view as CSV,
+  scoped to one project and permission action (`projectId` and `bit`).
 - `GET /api/run/export/effective-permissions` — download a flat CSV of every
   subject × resource × action with effective state and provenance flags.
 - `GET /api/run/export/assignments` — download a raw ACE CSV with bitmask
@@ -68,6 +72,11 @@ JSON API (v1):
 
 The embedded frontend provides the run overview plus subject and resource entry
 points into the access explorer.
+
+Per-view CSV exports repeat the active resource identity or matrix filters on
+every row. Matrix exports include both collected permission results and
+`unknown` cells where no assignment was collected. Values that could be
+interpreted as spreadsheet formulas are apostrophe-prefixed for safety.
 
 Collected data is stored in a per-user data directory (SQLite):
 `AZDO_VIS_DATA_DIR` overrides the default (`%LOCALAPPDATA%\AzureDevOpsPermsVisualiser`

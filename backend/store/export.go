@@ -26,6 +26,81 @@ func (s *Store) ExportSubjectPermissionsCSV(ctx context.Context, runID int64, de
 	return s.exportEffectivePermissionsCSV(ctx, runID, descriptor, w)
 }
 
+// ExportResourcePermissionsCSV writes exactly the rows displayed for one
+// secured resource, including the active resource identity on every row.
+func (s *Store) ExportResourcePermissionsCSV(ctx context.Context, runID int64, token string, w io.Writer) error {
+	if token == "" {
+		return errors.New("store: resource token is required")
+	}
+	detail, err := s.ResourcePermissionsByRun(ctx, runID, token)
+	if err != nil {
+		return err
+	}
+	cw := csv.NewWriter(w)
+	if err := cw.Write(safeCSVRecord([]string{
+		"view", "resource_token", "resource_type", "resource_name", "resource_project", "resource_path",
+		"subject_descriptor", "subject_display_name", "subject_kind", "subject_origin",
+		"permission_bit", "permission_name", "permission_display_name", "state", "direct", "inherited", "via_group",
+	})); err != nil {
+		return fmt.Errorf("store: resource export header: %w", err)
+	}
+	for _, entry := range detail.Subjects {
+		for _, permission := range entry.Permissions {
+			if err := cw.Write(safeCSVRecord([]string{
+				"resource", detail.Resource.Token, detail.Resource.Type, detail.Resource.Name, detail.Resource.ProjectName, detail.Resource.Path,
+				entry.Subject.Descriptor, entry.Subject.DisplayName, entry.Subject.Kind, entry.Subject.Origin,
+				fmt.Sprint(permission.Bit), permission.Name, permission.DisplayName, string(permission.State),
+				boolStr(permission.Direct), boolStr(permission.Inherited), boolStr(permission.ViaGroup),
+			})); err != nil {
+				return fmt.Errorf("store: resource export row: %w", err)
+			}
+		}
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
+// ExportPermissionMatrixCSV writes the currently selected project/action
+// matrix, including unknown cells where no assignment was collected.
+func (s *Store) ExportPermissionMatrixCSV(ctx context.Context, runID int64, projectID string, bit int64, w io.Writer) error {
+	if projectID == "" || bit <= 0 {
+		return errors.New("store: matrix project and positive permission bit are required")
+	}
+	matrix, err := s.PermissionMatrixByRun(ctx, runID, projectID, bit)
+	if err != nil {
+		return err
+	}
+	cw := csv.NewWriter(w)
+	if err := cw.Write(safeCSVRecord([]string{
+		"view", "project_id", "project_name", "permission_bit", "permission_name", "permission_display_name",
+		"resource_token", "resource_type", "resource_name", "resource_path",
+		"subject_descriptor", "subject_display_name", "subject_kind", "subject_origin",
+		"assignment_collected", "state", "direct", "inherited", "via_group",
+	})); err != nil {
+		return fmt.Errorf("store: matrix export header: %w", err)
+	}
+	for _, row := range matrix.Rows {
+		for _, subject := range matrix.Subjects {
+			permission := row.Cells[subject.Descriptor]
+			collected, state, direct, inherited, viaGroup := false, "unknown", false, false, false
+			if permission != nil {
+				collected, state = true, string(permission.State)
+				direct, inherited, viaGroup = permission.Direct, permission.Inherited, permission.ViaGroup
+			}
+			if err := cw.Write(safeCSVRecord([]string{
+				"matrix", matrix.ProjectID, matrix.ProjectName, fmt.Sprint(matrix.Action.Bit), matrix.Action.Name, matrix.Action.DisplayName,
+				row.Resource.Token, row.Resource.Type, row.Resource.Name, row.Resource.Path,
+				subject.Descriptor, subject.DisplayName, subject.Kind, subject.Origin,
+				boolStr(collected), state, boolStr(direct), boolStr(inherited), boolStr(viaGroup),
+			})); err != nil {
+				return fmt.Errorf("store: matrix export row: %w", err)
+			}
+		}
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
 func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, descriptor string, w io.Writer) error {
 	actions, err := permissionActionsByRun(ctx, s.db, runID)
 	if err != nil {
@@ -177,4 +252,17 @@ func boolStr(v bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+// safeCSVRecord prevents spreadsheet applications from interpreting exported
+// values as formulas.
+func safeCSVRecord(record []string) []string {
+	safe := make([]string, len(record))
+	for i, value := range record {
+		if value != "" && strings.ContainsRune("=+-@	\r\n", rune(value[0])) {
+			value = "'" + value
+		}
+		safe[i] = value
+	}
+	return safe
 }

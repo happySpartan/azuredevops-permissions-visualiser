@@ -280,6 +280,43 @@ func apiRoutes(st *store.Store) http.Handler {
 	})
 
 	// CSV export endpoints
+	mux.HandleFunc("/api/explorer/resources/export", func(w http.ResponseWriter, r *http.Request) {
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			httpError(w, http.StatusBadRequest, errors.New("token is required"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=resource-permissions.csv")
+		if err := st.ExportResourcePermissionsCSV(r.Context(), runID, token, w); err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+	})
+
+	mux.HandleFunc("/api/explorer/matrix/export", func(w http.ResponseWriter, r *http.Request) {
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		projectID := r.URL.Query().Get("projectId")
+		bit, err := queryInt(r, "bit", 0)
+		if projectID == "" || err != nil || bit <= 0 {
+			httpError(w, http.StatusBadRequest, errors.New("projectId and positive bit are required"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=permission-matrix.csv")
+		if err := st.ExportPermissionMatrixCSV(r.Context(), runID, projectID, int64(bit), w); err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+	})
+
 	mux.HandleFunc("/api/explorer/subjects/export", func(w http.ResponseWriter, r *http.Request) {
 		runID, ok := latestRunID(w, r, st)
 		if !ok {

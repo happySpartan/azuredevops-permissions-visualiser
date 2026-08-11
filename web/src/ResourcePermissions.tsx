@@ -49,7 +49,10 @@ export default function ResourcePermissions({ resource, projectName, onBack }: P
           <h1>{resource.name}</h1>
           <p>{projectName}{resource.path ? ` · ${resource.path}` : ''}</p>
         </div>
-        <button className="button secondary" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show key actions' : 'Show all actions'}</button>
+        <div className="heading-actions">
+          <a className="button secondary" href={`/api/explorer/resources/export?${new URLSearchParams({ token: resource.token })}`} download>Export CSV</a>
+          <button className="button secondary" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show key actions' : 'Show all actions'}</button>
+        </div>
       </div>
       <div className="source-note"><strong>Azure DevOps result</strong><span>Effective states are the inherited and effective masks reported by Azure DevOps, not a locally reconstructed verdict.</span></div>
       {loading && <div className="panel loading-state">Loading subjects with permissions…</div>}
