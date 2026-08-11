@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend"
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/azdo"
+	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/collect"
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/store"
 )
 
@@ -81,14 +83,7 @@ func main() {
 func apiRoutes(st *store.Store) http.Handler {
 	org := os.Getenv("AZDO_ORG")
 	mux := http.NewServeMux()
-
-	// reusableClient builds an azdo client from the configured org, or nil.
-	reusableClient := func() (*azdo.Client, error) {
-		if org == "" {
-			return nil, errNoOrg
-		}
-		return azdo.NewClient(org)
-	}
+	collection := collect.NewManager()
 
 	mux.HandleFunc("/api/run/current", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -111,25 +106,44 @@ func apiRoutes(st *store.Store) http.Handler {
 
 	mux.HandleFunc("/api/run/collect", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		client, err := reusableClient()
-		if err != nil {
-			httpError(w, http.StatusServiceUnavailable, err)
+		if r.Method != http.MethodPost {
+			httpError(w, http.StatusMethodNotAllowed, errors.New("POST required"))
 			return
 		}
-		if err := requireAzAuth(r); err != nil {
-			httpError(w, http.StatusServiceUnavailable, err)
+		if org == "" {
+			httpError(w, http.StatusServiceUnavailable, errNoOrg)
 			return
 		}
-		collector := newCollector(client, st)
-		res, err := collector.Collect(r.Context(), org)
-		if err != nil {
-			httpError(w, http.StatusBadGateway, err)
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]any{
-			"runID":  res.RunID,
-			"counts": res.Counts,
+		err := collection.Start(r.Context(), func(ctx context.Context, report collect.ProgressFunc) (*collect.Result, error) {
+			report(collect.Progress{Phase: collect.PhaseAuthenticating, Message: "Checking Azure CLI authentication"})
+			if err := requireAzAuth(ctx); err != nil {
+				return nil, err
+			}
+			client, err := azdo.NewClient(org)
+			if err != nil {
+				return nil, err
+			}
+			return newCollector(client, st).CollectWithProgress(ctx, org, report)
 		})
+		if errors.Is(err, collect.ErrCollectionRunning) {
+			httpError(w, http.StatusConflict, err)
+			return
+		}
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(collection.Status())
+	})
+
+	mux.HandleFunc("/api/run/collection-status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet {
+			httpError(w, http.StatusMethodNotAllowed, errors.New("GET required"))
+			return
+		}
+		json.NewEncoder(w).Encode(collection.Status())
 	})
 
 	mux.HandleFunc("/api/run/delete", func(w http.ResponseWriter, r *http.Request) {

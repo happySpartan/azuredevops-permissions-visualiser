@@ -147,6 +147,29 @@ func newCollector(t *testing.T, f *fakeServer) (*Collector, *store.Store, *httpt
 	return New(client, st), st, srv
 }
 
+func TestCollectReportsOrderedPhases(t *testing.T) {
+	f := &fakeServer{}
+	c, _, srv := newCollector(t, f)
+	defer srv.Close()
+
+	var phases []Phase
+	_, err := c.CollectWithProgress(context.Background(), "org", func(progress Progress) {
+		phases = append(phases, progress.Phase)
+	})
+	if err != nil {
+		t.Fatalf("CollectWithProgress: %v", err)
+	}
+	want := []Phase{PhaseProjects, PhaseBuilds, PhaseSubjects, PhasePermissions, PhaseCommitting, PhaseComplete}
+	if len(phases) != len(want) {
+		t.Fatalf("phases = %v, want %v", phases, want)
+	}
+	for i := range want {
+		if phases[i] != want[i] {
+			t.Fatalf("phases[%d] = %q, want %q (all phases: %v)", i, phases[i], want[i], phases)
+		}
+	}
+}
+
 func TestCollectSuccess(t *testing.T) {
 	f := &fakeServer{}
 	c, st, srv := newCollector(t, f)

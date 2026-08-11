@@ -65,13 +65,10 @@ func (c *Client) BuildDefinitions(ctx context.Context, project string, includeNo
 			return nil, err
 		}
 		all = append(all, out.Value...)
-		if out.Continuation == nil || len(out.Value) == 0 {
+		if out.Continuation == nil || out.Continuation.Value == "" || len(out.Value) == 0 {
 			break
 		}
 		q.Set("continuationToken", out.Continuation.Value)
-		if len(out.Value) < 1000 {
-			break
-		}
 	}
 	if includeNonYAML {
 		return all, nil

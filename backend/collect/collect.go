@@ -38,10 +38,42 @@ type Result struct {
 	Counts store.RunCounts
 }
 
+// Phase identifies the current step of a collection run.
+type Phase string
+
+const (
+	PhaseAuthenticating Phase = "authenticating"
+	PhaseProjects       Phase = "projects"
+	PhaseBuilds         Phase = "builds"
+	PhaseSubjects       Phase = "subjects"
+	PhasePermissions    Phase = "permissions"
+	PhaseCommitting     Phase = "committing"
+	PhaseComplete       Phase = "complete"
+)
+
+// Progress is emitted when the collector advances to a new phase.
+type Progress struct {
+	Phase   Phase  `json:"phase"`
+	Message string `json:"message"`
+}
+
+// ProgressFunc receives collection progress. It must return quickly.
+type ProgressFunc func(Progress)
+
 // Collect performs a full one-shot collection. On success the run is committed
 // and the previous successful run is replaced. On failure the run is marked
 // failed and its partial data discarded.
 func (c *Collector) Collect(ctx context.Context, org string) (*Result, error) {
+	return c.CollectWithProgress(ctx, org, nil)
+}
+
+// CollectWithProgress performs a full collection and reports each phase.
+func (c *Collector) CollectWithProgress(ctx context.Context, org string, report ProgressFunc) (*Result, error) {
+	notify := func(phase Phase, message string) {
+		if report != nil {
+			report(Progress{Phase: phase, Message: message})
+		}
+	}
 	runID, err := c.store.BeginRun(ctx, org)
 	if err != nil {
 		return nil, err
@@ -54,21 +86,25 @@ func (c *Collector) Collect(ctx context.Context, org string) (*Result, error) {
 	}
 
 	// Phases run in order; the first error aborts the whole run.
+	notify(PhaseProjects, "Discovering projects")
 	if err := c.collectProjects(ctx, tx); err != nil {
 		tx.Abort()
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
 	}
+	notify(PhaseBuilds, "Discovering pipeline folders and YAML pipelines")
 	if err := c.collectBuilds(ctx, tx); err != nil {
 		tx.Abort()
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
 	}
+	notify(PhaseSubjects, "Discovering users, groups, and memberships")
 	if err := c.collectSubjects(ctx, tx); err != nil {
 		tx.Abort()
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
 	}
+	notify(PhasePermissions, "Collecting Build permission assignments")
 	if err := c.collectACLs(ctx, tx); err != nil {
 		tx.Abort()
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
@@ -76,6 +112,7 @@ func (c *Collector) Collect(ctx context.Context, org string) (*Result, error) {
 	}
 
 	counts := tx.Counts()
+	notify(PhaseCommitting, "Committing the completed snapshot")
 	if err := tx.Commit(); err != nil {
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
@@ -83,6 +120,7 @@ func (c *Collector) Collect(ctx context.Context, org string) (*Result, error) {
 	if err := c.store.CompleteRun(ctx, runID, counts); err != nil {
 		return nil, err
 	}
+	notify(PhaseComplete, "Collection complete")
 	return &Result{RunID: runID, Counts: counts}, nil
 }
 

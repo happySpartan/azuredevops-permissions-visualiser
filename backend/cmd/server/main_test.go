@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/collect"
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/store"
 )
 
@@ -73,5 +75,47 @@ func TestMatrixExportEndpointDownloadsProjectAndBitScopedCSV(t *testing.T) {
 	body := recorder.Body.String()
 	if !strings.Contains(body, "project_id") || !strings.Contains(body, "permission_bit") || !strings.Contains(body, "ViewBuilds") {
 		t.Fatalf("unexpected CSV: %s", body)
+	}
+}
+
+func TestCollectionStatusStartsIdle(t *testing.T) {
+	t.Setenv("AZDO_ORG", "")
+	st, err := store.Open(filepath.Join(t.TempDir(), "api.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/run/collection-status", nil)
+	response := httptest.NewRecorder()
+	apiRoutes(st).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status code = %d, body = %s", response.Code, response.Body.String())
+	}
+	var status collect.Status
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status.State != collect.StateIdle {
+		t.Fatalf("state = %q, want idle", status.State)
+	}
+}
+
+func TestCollectWithoutOrganizationReturnsActionableSetupError(t *testing.T) {
+	t.Setenv("AZDO_ORG", "")
+	st, err := store.Open(filepath.Join(t.TempDir(), "api.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/run/collect", nil)
+	response := httptest.NewRecorder()
+	apiRoutes(st).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status code = %d, body = %s", response.Code, response.Body.String())
+	}
+	if body := response.Body.String(); !strings.Contains(body, "AZDO_ORG=my-org") || !strings.Contains(body, "restart") {
+		t.Fatalf("error is not actionable: %s", body)
 	}
 }

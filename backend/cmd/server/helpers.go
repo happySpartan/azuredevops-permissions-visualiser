@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"errors"
-	"net/http"
 	"os"
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/azdo"
@@ -11,14 +11,14 @@ import (
 )
 
 // errNoOrg indicates AZDO_ORG is not configured.
-var errNoOrg = errors.New("no organization configured: set AZDO_ORG and authenticate with Azure CLI")
+var errNoOrg = errors.New("AZDO_ORG is not set; set it to your Azure DevOps organization name (for example AZDO_ORG=my-org) and restart the visualiser")
 
 // requireAzAuth verifies the Azure CLI is present and can yield a token,
 // returning a descriptive error if not. It is a lightweight probe so the API
 // returns a clear message instead of a generic failure mid-collection.
-func requireAzAuth(r *http.Request) error {
+func requireAzAuth(ctx context.Context) error {
 	provider := azdo.NewAzCLITokenProvider()
-	_, err := provider.Token(r.Context())
+	_, err := provider.Token(ctx)
 	return err
 }
 
