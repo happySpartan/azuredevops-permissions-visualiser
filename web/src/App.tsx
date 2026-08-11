@@ -17,6 +17,13 @@ interface Run {
   AssignmentCount: number
 }
 
+interface CollectionStatus {
+  state: 'idle' | 'running' | 'succeeded' | 'failed'
+  phase?: string
+  message?: string
+  error?: string
+}
+
 interface Subject {
   descriptor: string
   displayName: string
@@ -59,6 +66,7 @@ function App() {
   const [view, setView] = useState<View>('overview')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [collectionStatus, setCollectionStatus] = useState<CollectionStatus>({ state: 'idle' })
 
   const loadRun = useCallback(async () => {
     try {
@@ -72,15 +80,33 @@ function App() {
 
   useEffect(() => { void loadRun() }, [loadRun])
 
+  const loadCollectionStatus = useCallback(async () => {
+    try {
+      const status = await api<CollectionStatus>('/api/run/collection-status')
+      setCollectionStatus(status)
+      setBusy(status.state === 'running')
+      if (status.state === 'succeeded') await loadRun()
+      if (status.state === 'failed') setError(status.error || 'Collection failed')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught))
+    }
+  }, [loadRun])
+
+  useEffect(() => { void loadCollectionStatus() }, [loadCollectionStatus])
+  useEffect(() => {
+    if (!busy) return
+    const timer = window.setInterval(() => { void loadCollectionStatus() }, 750)
+    return () => window.clearInterval(timer)
+  }, [busy, loadCollectionStatus])
+
   async function collect() {
     setBusy(true)
     setError(null)
     try {
       await api('/api/run/collect', { method: 'POST' })
-      await loadRun()
+      await loadCollectionStatus()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
-    } finally {
       setBusy(false)
     }
   }
@@ -136,7 +162,7 @@ function App() {
 
         <main className="content">
           {error && <div className="error-banner" role="alert"><strong>Unable to complete request</strong><span>{error}</span><button onClick={() => setError(null)}>×</button></div>}
-          {view === 'overview' && <Overview run={run} busy={busy} onCollect={collect} onDelete={deleteData} onExplore={() => setView('subjects')} />}
+          {view === 'overview' && <Overview run={run} busy={busy} collectionStatus={collectionStatus} onCollect={collect} onDelete={deleteData} onExplore={() => setView('subjects')} />}
           {view === 'subjects' && run && <Subjects />}
           {view === 'resources' && run && <Resources />}
           {view === 'matrix' && run && <PermissionMatrix />}
@@ -146,9 +172,10 @@ function App() {
   )
 }
 
-function Overview({ run, busy, onCollect, onDelete, onExplore }: {
+function Overview({ run, busy, collectionStatus, onCollect, onDelete, onExplore }: {
   run: Run | null
   busy: boolean
+  collectionStatus: CollectionStatus
   onCollect: () => void
   onDelete: () => void
   onExplore: () => void
@@ -161,6 +188,7 @@ function Overview({ run, busy, onCollect, onDelete, onExplore }: {
         <h1>Understand who can do what</h1>
         <p>Collect pipeline and pipeline-folder permissions from one Azure DevOps organization, then explore the result locally.</p>
         <button className="button primary" disabled={busy} onClick={onCollect}>{busy ? 'Collecting…' : 'Collect organization'}</button>
+        {busy && <CollectionProgress status={collectionStatus} />}
         <small>Requires AZDO_ORG and an authenticated Azure CLI.</small>
       </section>
     )
@@ -186,6 +214,7 @@ function Overview({ run, busy, onCollect, onDelete, onExplore }: {
         <div><strong>Collection complete</strong><p>All required data was collected successfully.</p></div>
         <span className="complete-badge">Complete</span>
       </div>
+      {busy && <CollectionProgress status={collectionStatus} />}
       <div className="stats-grid">
         {stats.map(([label, value]) => <article className="stat-card" key={label}><span>{label}</span><strong>{value.toLocaleString()}</strong></article>)}
       </div>
@@ -201,6 +230,13 @@ function Overview({ run, busy, onCollect, onDelete, onExplore }: {
       </div>
     </section>
   )
+}
+
+function CollectionProgress({ status }: { status: CollectionStatus }) {
+  return <div className="collection-progress panel" role="status" aria-live="polite">
+    <span className="progress-spinner" aria-hidden="true" />
+    <div><strong>{status.message || 'Preparing collection'}</strong><small>{status.phase ? `Phase: ${status.phase}` : 'Collection is starting'}</small></div>
+  </div>
 }
 
 function Subjects() {

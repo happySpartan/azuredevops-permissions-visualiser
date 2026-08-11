@@ -44,7 +44,10 @@ JSON API (v1):
 - `POST /api/run/collect` — run a one-shot collection of the configured
   organization (`AZDO_ORG`); requires Azure CLI authentication. A failed or
   cancelled run is discarded and never becomes an analysis; the previous good
-  run is preserved.
+  run is preserved. Returns `202 Accepted`; collection continues in the
+  background and concurrent attempts return `409 Conflict`.
+- `GET /api/run/collection-status` — report the active collection phase,
+  lifecycle state, completion counts, or actionable failure details.
 - `POST /api/run/delete` — delete all collected data.
 - `GET /api/explorer/subjects` — search and page through collected users and
   groups (`search`, `kind`, `limit`, and `offset` query parameters).
