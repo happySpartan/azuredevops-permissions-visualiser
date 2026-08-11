@@ -101,6 +101,47 @@ func (s *Store) ExportPermissionMatrixCSV(ctx context.Context, runID int64, proj
 	return cw.Error()
 }
 
+// ExportGroupMembershipCSV writes the selected group's direct and transitive
+// members, including the deterministic path that establishes each membership.
+func (s *Store) ExportGroupMembershipCSV(ctx context.Context, runID int64, descriptor string, w io.Writer) error {
+	if descriptor == "" {
+		return errors.New("store: group descriptor is required")
+	}
+	detail, err := s.GroupMembershipByRun(ctx, runID, descriptor)
+	if err != nil {
+		return err
+	}
+	cw := csv.NewWriter(w)
+	if err := cw.Write(safeCSVRecord([]string{
+		"group_descriptor", "group_display_name", "member_descriptor",
+		"member_display_name", "member_kind", "relationship", "membership_path",
+	})); err != nil {
+		return fmt.Errorf("store: export group membership header: %w", err)
+	}
+	for _, member := range detail.Members {
+		relationship := "transitive"
+		if member.Direct {
+			relationship = "direct"
+		}
+		path := make([]string, len(member.Path))
+		for index, subject := range member.Path {
+			path[index] = subject.DisplayName
+		}
+		if err := cw.Write(safeCSVRecord([]string{
+			detail.Group.Descriptor, detail.Group.DisplayName,
+			member.Subject.Descriptor, member.Subject.DisplayName, member.Subject.Kind,
+			relationship, strings.Join(path, " > "),
+		})); err != nil {
+			return fmt.Errorf("store: export group membership row: %w", err)
+		}
+	}
+	cw.Flush()
+	if err := cw.Error(); err != nil {
+		return fmt.Errorf("store: export group membership: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, descriptor string, w io.Writer) error {
 	actions, err := permissionActionsByRun(ctx, s.db, runID)
 	if err != nil {

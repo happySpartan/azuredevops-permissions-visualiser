@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import PermissionExplanationDrawer from './PermissionExplanationDrawer'
+import GroupMembershipPanel from './GroupMembershipPanel'
 
 export interface Subject {
   descriptor: string
@@ -69,6 +70,8 @@ export default function SubjectPermissions({ subject, onBack }: Props) {
         </div>
       </div>
       <div className="source-note"><strong>Azure DevOps result</strong><span>Effective states are the inherited and effective masks reported by Azure DevOps, not a locally reconstructed verdict.</span></div>
+      {subject.kind === 'group' && <GroupMembershipPanel group={subject} />}
+      {subject.kind === 'group' && <div className="section-heading permissions-section-heading"><div><p className="eyebrow">Group access</p><h2>Collected permissions</h2></div></div>}
       {loading && <div className="panel loading-state">Loading collected permissions…</div>}
       {error && <p className="inline-error">{error}</p>}
       {detail && detail.resources.length === 0 && <div className="panel table-empty">No collected access-control entry was returned for this subject.</div>}

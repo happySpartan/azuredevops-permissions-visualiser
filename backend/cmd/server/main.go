@@ -207,6 +207,50 @@ func apiRoutes(st *store.Store) http.Handler {
 		json.NewEncoder(w).Encode(detail)
 	})
 
+	mux.HandleFunc("/api/explorer/groups/memberships", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		descriptor := r.URL.Query().Get("descriptor")
+		if descriptor == "" {
+			httpError(w, http.StatusBadRequest, errors.New("descriptor is required"))
+			return
+		}
+		detail, err := st.GroupMembershipByRun(r.Context(), runID, descriptor)
+		if errors.Is(err, store.ErrNotFound) {
+			httpError(w, http.StatusNotFound, err)
+			return
+		}
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(detail)
+	})
+
+	mux.HandleFunc("/api/explorer/groups/memberships/export", func(w http.ResponseWriter, r *http.Request) {
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		descriptor := r.URL.Query().Get("descriptor")
+		if descriptor == "" {
+			httpError(w, http.StatusBadRequest, errors.New("descriptor is required"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=group-membership.csv")
+		if err := st.ExportGroupMembershipCSV(r.Context(), runID, descriptor, w); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				httpError(w, http.StatusNotFound, err)
+				return
+			}
+			httpError(w, http.StatusInternalServerError, err)
+		}
+	})
+
 	mux.HandleFunc("/api/explorer/subjects/explanation", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		runID, ok := latestRunID(w, r, st)

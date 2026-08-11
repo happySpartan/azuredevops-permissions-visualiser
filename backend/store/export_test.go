@@ -282,3 +282,33 @@ func TestExportEmptyRun(t *testing.T) {
 		t.Fatalf("expected header: %s", body)
 	}
 }
+
+func TestExportGroupMembershipCSVIncludesDirectTransitiveAndPaths(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	runID, _ := s.BeginRun(ctx, "acme")
+	tx, _ := s.BeginTx(ctx, runID)
+	_ = tx.AddSubject(ctx, "g-root", "Engineering", "aad", "group")
+	_ = tx.AddSubject(ctx, "g-platform", "Platform", "aad", "group")
+	_ = tx.AddSubject(ctx, "u-alice", "Alice", "aad", "user")
+	_ = tx.AddMembership(ctx, "g-root", "g-platform")
+	_ = tx.AddMembership(ctx, "g-platform", "u-alice")
+	_ = tx.Commit()
+
+	var buf bytes.Buffer
+	if err := s.ExportGroupMembershipCSV(ctx, runID, "g-root", &buf); err != nil {
+		t.Fatalf("ExportGroupMembershipCSV: %v", err)
+	}
+	rows, err := csv.NewReader(&buf).ReadAll()
+	if err != nil {
+		t.Fatalf("read CSV: %v", err)
+	}
+	want := [][]string{
+		{"group_descriptor", "group_display_name", "member_descriptor", "member_display_name", "member_kind", "relationship", "membership_path"},
+		{"g-root", "Engineering", "u-alice", "Alice", "user", "transitive", "Engineering > Platform > Alice"},
+		{"g-root", "Engineering", "g-platform", "Platform", "group", "direct", "Engineering > Platform"},
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Fatalf("rows = %#v, want %#v", rows, want)
+	}
+}

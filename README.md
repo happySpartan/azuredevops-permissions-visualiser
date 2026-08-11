@@ -50,6 +50,11 @@ JSON API (v1):
   groups (`search`, `kind`, `limit`, and `offset` query parameters).
 - `GET /api/explorer/subjects/permissions` — show Azure DevOps' reported
   effective Build permission results for one subject (`descriptor`).
+- `GET /api/explorer/groups/memberships` — show a selected group's direct and
+  transitive members, including nested groups and deterministic membership paths
+  (`descriptor`). Cycles in collected membership data are handled safely.
+- `GET /api/explorer/groups/memberships/export` — download the selected group's
+  direct and transitive members and membership paths as CSV (`descriptor`).
 - `GET /api/explorer/subjects/explanation` — explain one subject/resource/action
   tuple with raw ACEs, nested group paths, and resource ancestry (`descriptor`,
   `token`, and `bit`).
@@ -71,7 +76,9 @@ JSON API (v1):
   columns in hex.
 
 The embedded frontend provides the run overview plus subject and resource entry
-points into the access explorer.
+points into the access explorer. Selecting a group keeps it as a first-class
+permission subject and also shows its direct and transitive membership, nested
+groups, membership paths, and a group-membership CSV export.
 
 Per-view CSV exports repeat the active resource identity or matrix filters on
 every row. Matrix exports include both collected permission results and
