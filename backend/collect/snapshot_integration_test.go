@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/azdo"
@@ -59,6 +60,17 @@ func TestRecordedSnapshotCollectionCommitsQueryableAnalysis(t *testing.T) {
 	})
 	mux.HandleFunc("/org/_apis/graph/groups", serve(snapshot.Groups))
 	mux.HandleFunc("/org/_apis/graph/memberships/", serve(snapshot.Memberships))
+	mux.HandleFunc("/org/_apis/Identities", func(w http.ResponseWriter, r *http.Request) {
+		descriptors := r.URL.Query().Get("descriptors")
+		values := []map[string]any{}
+		if descriptors != "" {
+			for _, d := range strings.Split(descriptors, ",") {
+				values = append(values, map[string]any{"descriptor": d, "subjectDescriptor": d})
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"value": values})
+	})
 	mux.HandleFunc("/org/_apis/securitynamespaces/", serve(snapshot.Namespace))
 	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.BuildNamespaceID, func(w http.ResponseWriter, r *http.Request) {
 		serve(snapshot.ACLByToken[r.URL.Query().Get("token")])(w, r)

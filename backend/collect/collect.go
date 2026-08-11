@@ -248,14 +248,32 @@ func (c *Collector) collectACLs(ctx context.Context, tx *store.Tx) error {
 	if err != nil {
 		return fmt.Errorf("collect: aclquery: %w", err)
 	}
-	// Persist raw entries as reported by Azure DevOps.
+	// ACL entries are keyed by Azure DevOps' general (storage) descriptor
+	// (e.g. "Microsoft.TeamFoundation.Identity;S-1-9-..."), which is a
+	// different encoding from the Graph descriptor used to identify subjects.
+	// Resolve the distinct general descriptors to their Graph form so stored
+	// assignments join subjects by the same key.
+	var general []string
+	for _, acl := range acls {
+		for _, e := range acl.Entries {
+			if e.Descriptor != "" {
+				general = append(general, e.Descriptor)
+			}
+		}
+	}
+	graphByGeneral, err := c.client.IdentityGraphDescriptors(ctx, general)
+	if err != nil {
+		return fmt.Errorf("collect: resolve acl descriptors: %w", err)
+	}
+	// Persist entries using the Graph descriptor when resolvable.
 	for token, acl := range acls {
-		for descriptor, e := range acl.Entries {
-			if e.Descriptor == "" {
-				e.Descriptor = descriptor
+		for _, e := range acl.Entries {
+			graphDesc := e.Descriptor
+			if g, ok := graphByGeneral[e.Descriptor]; ok && g != "" {
+				graphDesc = g
 			}
 			info := e.ExtendedInfo
-			if err := tx.AddAssignmentExtended(ctx, token, e.Descriptor, e.Allow, e.Deny,
+			if err := tx.AddAssignmentExtended(ctx, token, graphDesc, e.Allow, e.Deny,
 				info.InheritedAllow, info.InheritedDeny, info.EffectiveAllow, info.EffectiveDeny); err != nil {
 				return err
 			}

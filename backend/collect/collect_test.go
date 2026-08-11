@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/happySpartan/azuredevops-permissions-visualiser/backend/azdo"
@@ -99,6 +100,20 @@ func (f *fakeServer) handler() http.Handler {
 			"name":        "Build",
 			"actions":     []azdo.ACE{{Bit: 1, Name: "ViewBuilds"}},
 		}}})
+	})
+
+	// The identity API echoes each general descriptor's Graph (subject)
+	// descriptor. The fake ACLs already use Graph descriptors, so map each
+	// descriptor to itself to preserve the subject join.
+	mux.HandleFunc("/org/_apis/Identities", func(w http.ResponseWriter, r *http.Request) {
+		descriptors := r.URL.Query().Get("descriptors")
+		values := []map[string]any{}
+		if descriptors != "" {
+			for _, d := range strings.Split(descriptors, ",") {
+				values = append(values, map[string]any{"descriptor": d, "subjectDescriptor": d})
+			}
+		}
+		writeJSON(w, map[string]any{"value": values})
 	})
 
 	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.BuildNamespaceID, func(w http.ResponseWriter, r *http.Request) {

@@ -22,6 +22,7 @@ func fakeOrg(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.Server)
 	c, err := NewClient("myorg",
 		WithHTTPClient(srv.Client()),
 		WithBaseURL(srv.URL),
+		WithVSSPSURL(srv.URL),
 		WithTokenProvider(staticToken{t: "tok-123"}),
 		WithRetry(0, 0, 0),
 	)
@@ -166,6 +167,48 @@ func TestACEQueryRequestsEachToken(t *testing.T) {
 	}
 	if requests != 3 {
 		t.Fatalf("expected 3 requests, got %d", requests)
+	}
+}
+
+func TestIdentityGraphDescriptors(t *testing.T) {
+	c, srv := fakeOrg(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/myorg/_apis/Identities" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		got := r.URL.Query().Get("descriptors")
+		// already-graph descriptors should be filtered client-side
+		if strings.Contains(got, "vssgp.") {
+			t.Errorf("graph descriptors leaked into identity call: %q", got)
+		}
+		if !strings.Contains(got, "Microsoft.TeamFoundation.Identity;S-1-9-1") ||
+			!strings.Contains(got, "Microsoft.TeamFoundation.Identity;S-1-9-2") {
+			t.Errorf("expected general descriptors in call, got %q", got)
+		}
+		writeJSON(w, map[string]any{"value": []map[string]string{
+			{"descriptor": "Microsoft.TeamFoundation.Identity;S-1-9-1", "subjectDescriptor": "vssgp.abc"},
+			{"descriptor": "Microsoft.TeamFoundation.Identity;S-1-9-2", "subjectDescriptor": "vssgp.def"},
+		}})
+	})
+	defer srv.Close()
+
+	got, err := c.IdentityGraphDescriptors(context.Background(), []string{
+		"Microsoft.TeamFoundation.Identity;S-1-9-1",
+		"Microsoft.TeamFoundation.Identity;S-1-9-2",
+		"vssgp.alreadyGraph", // must be ignored
+		"",
+	})
+	if err != nil {
+		t.Fatalf("IdentityGraphDescriptors: %v", err)
+	}
+	if got["Microsoft.TeamFoundation.Identity;S-1-9-1"] != "vssgp.abc" ||
+		got["Microsoft.TeamFoundation.Identity;S-1-9-2"] != "vssgp.def" {
+		t.Fatalf("unexpected mapping: %+v", got)
+	}
+	if _, ok := got["vssgp.alreadyGraph"]; ok {
+		t.Fatalf("graph descriptor should not be resolved: %+v", got)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 resolved descriptors, got %d", len(got))
 	}
 }
 
