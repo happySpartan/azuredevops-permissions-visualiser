@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import './app.css'
 import SubjectPermissions from './SubjectPermissions'
 import ResourcePermissions from './ResourcePermissions'
+import PermissionMatrix from './PermissionMatrix'
 
 interface Run {
   ID: number
@@ -44,7 +45,7 @@ interface Project {
   pipelines: Pipeline[]
 }
 
-type View = 'overview' | 'subjects' | 'resources'
+type View = 'overview' | 'subjects' | 'resources' | 'matrix'
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -126,6 +127,9 @@ function App() {
           <button disabled={!run} className={view === 'resources' ? 'nav-item active' : 'nav-item'} onClick={() => setView('resources')}>
             <span aria-hidden="true">◇</span> Resources
           </button>
+          <button disabled={!run} className={view === 'matrix' ? 'nav-item active' : 'nav-item'} onClick={() => setView('matrix')}>
+            <span aria-hidden="true">▦</span> Matrix
+          </button>
           <div className="sidebar-spacer" />
           <div className="local-note"><strong>Local only</strong><span>Collected data stays on this device.</span></div>
         </nav>
@@ -135,6 +139,7 @@ function App() {
           {view === 'overview' && <Overview run={run} busy={busy} onCollect={collect} onDelete={deleteData} onExplore={() => setView('subjects')} />}
           {view === 'subjects' && run && <Subjects />}
           {view === 'resources' && run && <Resources />}
+          {view === 'matrix' && run && <PermissionMatrix />}
         </main>
       </div>
     </div>

@@ -251,6 +251,30 @@ func apiRoutes(st *store.Store) http.Handler {
 		json.NewEncoder(w).Encode(detail)
 	})
 
+	mux.HandleFunc("/api/explorer/matrix", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		runID, ok := latestRunID(w, r, st)
+		if !ok {
+			return
+		}
+		projectID := r.URL.Query().Get("projectId")
+		bit, err := queryInt(r, "bit", 0)
+		if projectID == "" || err != nil || bit <= 0 {
+			httpError(w, http.StatusBadRequest, errors.New("projectId and positive bit are required"))
+			return
+		}
+		matrix, err := st.PermissionMatrixByRun(r.Context(), runID, projectID, int64(bit))
+		if errors.Is(err, store.ErrNotFound) {
+			httpError(w, http.StatusNotFound, err)
+			return
+		}
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		json.NewEncoder(w).Encode(matrix)
+	})
+
 	// CSV export endpoints
 	mux.HandleFunc("/api/run/export/effective-permissions", func(w http.ResponseWriter, r *http.Request) {
 		runID, ok := latestRunID(w, r, st)
