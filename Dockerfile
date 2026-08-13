@@ -23,9 +23,12 @@ RUN CGO_ENABLED=0 go build -o /out/visualiser ./cmd/server/
 # ---- Stage 3: runtime with the required Azure CLI ----
 FROM mcr.microsoft.com/azure-cli:2.89.0-azurelinux3.0
 COPY --from=build /out/visualiser /visualiser
-RUN useradd --create-home --uid 10001 visualiser \
-    && mkdir -p /data \
-    && chown visualiser:visualiser /data
+# The Azure Linux azure-cli image has no useradd (shadow-utils). Use a numeric
+# non-root UID and pre-create + chown the runtime dirs instead, so the binary
+# runs unprivileged and az can write its config under /home/visualiser/.azure.
+RUN mkdir -p /data /home/visualiser/.azure \
+    && chown -R 10001:10001 /data /home/visualiser \
+    && chmod 0700 /home/visualiser/.azure
 EXPOSE 8080
 ENV PORT=8080
 # Listen inside the container; publish it on the host loopback interface only.
@@ -33,5 +36,5 @@ ENV BIND_ADDR=0.0.0.0
 ENV NO_BROWSER=1
 ENV AZDO_VIS_DATA_DIR=/data
 ENV AZURE_CONFIG_DIR=/home/visualiser/.azure
-USER visualiser
+USER 10001
 ENTRYPOINT ["/visualiser"]
