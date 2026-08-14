@@ -46,6 +46,7 @@ const (
 	PhaseAuthenticating Phase = "authenticating"
 	PhaseProjects       Phase = "projects"
 	PhaseBuilds         Phase = "builds"
+	PhaseRepositories   Phase = "repositories"
 	PhaseSubjects       Phase = "subjects"
 	PhasePermissions    Phase = "permissions"
 	PhaseCommitting     Phase = "committing"
@@ -99,14 +100,20 @@ func (c *Collector) CollectWithProgress(ctx context.Context, org string, report 
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
 	}
+	notify(PhaseRepositories, "Discovering Git repositories and branches")
+	if err := c.collectRepositories(ctx, tx); err != nil {
+		tx.Abort()
+		_ = c.fail(ctx, runID, store.StatusFailed, err)
+		return nil, err
+	}
 	notify(PhaseSubjects, "Discovering users, groups, and memberships")
 	if err := c.collectSubjects(ctx, tx); err != nil {
 		tx.Abort()
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
 	}
-	notify(PhasePermissions, "Collecting Build permission assignments")
-	if err := c.collectACLs(ctx, tx); err != nil {
+	notify(PhasePermissions, "Collecting Build and Git permission assignments")
+	if err := c.collectPermissions(ctx, tx); err != nil {
 		tx.Abort()
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
@@ -224,29 +231,86 @@ func (c *Collector) collectSubjects(ctx context.Context, tx *store.Tx) error {
 	return nil
 }
 
-// collectACLs queries the Build security namespace for every secured resource
-// recorded in the run (projects, folders, and pipelines).
-func (c *Collector) collectACLs(ctx context.Context, tx *store.Tx) error {
-	ns, err := c.client.SecurityNamespace(ctx, azdo.BuildNamespaceID)
+// collectRepositories discovers Git repositories and their branches per project.
+func (c *Collector) collectRepositories(ctx context.Context, tx *store.Tx) error {
+	projects, err := tx.ProjectsByRunTx(ctx)
+	if err != nil {
+		return fmt.Errorf("collect: projects lookup: %w", err)
+	}
+	for _, p := range projects {
+		repos, err := c.client.Repositories(ctx, p.Name)
+		if err != nil {
+			return fmt.Errorf("collect: repositories for %s: %w", p.Name, err)
+		}
+		for _, r := range repos {
+			if err := tx.AddRepository(ctx, p.OrgID, r.ID, r.Name, r.DefaultBranch); err != nil {
+				return err
+			}
+			branches, err := c.client.RepositoryBranches(ctx, p.Name, r.ID)
+			if err != nil {
+				return fmt.Errorf("collect: branches for %s/%s: %w", p.Name, r.Name, err)
+			}
+			for _, b := range branches {
+				if err := tx.AddBranch(ctx, r.ID, b.Name); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// collectPermissions queries the Build and Git security namespaces for every
+// secured resource recorded in the run.
+func (c *Collector) collectPermissions(ctx context.Context, tx *store.Tx) error {
+	// Build namespace: projects, folders, pipelines.
+	buildNS, err := c.client.SecurityNamespace(ctx, azdo.BuildNamespaceID)
 	if err != nil {
 		return fmt.Errorf("collect: build namespace: %w", err)
 	}
-	for _, action := range ns.Actions {
-		if err := tx.AddPermissionAction(ctx, action.Bit, action.Name, action.DisplayName); err != nil {
-			return err
-		}
-	}
-
 	tokens, err := tx.TokensByRunTx(ctx)
 	if err != nil {
 		return fmt.Errorf("collect: tokens: %w", err)
 	}
-	if len(tokens) == 0 {
-		return nil
+	if len(tokens) > 0 {
+		for _, action := range buildNS.Actions {
+			if err := tx.AddPermissionAction(ctx, azdo.BuildNamespaceID, action.Bit, action.Name, action.DisplayName); err != nil {
+				return err
+			}
+		}
+		if err := c.collectNamespaceACLs(ctx, tx, azdo.BuildNamespaceID, tokens); err != nil {
+			return err
+		}
 	}
-	acls, err := c.client.ACEQuery(ctx, azdo.BuildNamespaceID, tokens, false)
+
+	// Git namespace: repositories and branches.
+	gitNS, err := c.client.SecurityNamespace(ctx, azdo.GitNamespaceID)
 	if err != nil {
-		return fmt.Errorf("collect: aclquery: %w", err)
+		return fmt.Errorf("collect: git namespace: %w", err)
+	}
+	gitTokens, err := tx.GitTokensByRunTx(ctx)
+	if err != nil {
+		return fmt.Errorf("collect: git tokens: %w", err)
+	}
+	if len(gitTokens) > 0 {
+		for _, action := range gitNS.Actions {
+			if err := tx.AddPermissionAction(ctx, azdo.GitNamespaceID, action.Bit, action.Name, action.DisplayName); err != nil {
+				return err
+			}
+		}
+		if err := c.collectNamespaceACLs(ctx, tx, azdo.GitNamespaceID, gitTokens); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// collectNamespaceACLs queries one security namespace for the given tokens and
+// persists its assignments and any ACL identities omitted from Graph listings.
+func (c *Collector) collectNamespaceACLs(ctx context.Context, tx *store.Tx, namespaceID string, tokens []string) error {
+	acls, err := c.client.ACEQuery(ctx, namespaceID, tokens, false)
+	if err != nil {
+		return fmt.Errorf("collect: aclquery %s: %w", namespaceID, err)
 	}
 	// ACL entries are keyed by Azure DevOps' general (storage) descriptor
 	// (e.g. "Microsoft.TeamFoundation.Identity;S-1-9-..."), which is a
@@ -284,7 +348,7 @@ func (c *Collector) collectACLs(ctx context.Context, tx *store.Tx) error {
 				graphDesc = identity.Descriptor
 			}
 			info := e.ExtendedInfo
-			if err := tx.AddAssignmentExtended(ctx, token, graphDesc, e.Allow, e.Deny,
+			if err := tx.AddAssignmentExtended(ctx, namespaceID, token, graphDesc, e.Allow, e.Deny,
 				info.InheritedAllow, info.InheritedDeny, info.EffectiveAllow, info.EffectiveDeny); err != nil {
 				return err
 			}

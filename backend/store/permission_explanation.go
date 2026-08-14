@@ -42,11 +42,12 @@ func (s *Store) PermissionExplanationByRun(ctx context.Context, runID int64, des
 	if err != nil {
 		return nil, err
 	}
-	action, err := s.permissionActionByBit(ctx, runID, bit)
+	resource, err := s.permissionResource(ctx, runID, token)
 	if err != nil {
 		return nil, err
 	}
-	resource, err := s.permissionResource(ctx, runID, token)
+	ns := resource.Namespace
+	action, err := s.permissionActionByBit(ctx, runID, ns, bit)
 	if err != nil {
 		return nil, err
 	}
@@ -55,8 +56,8 @@ func (s *Store) PermissionExplanationByRun(ctx context.Context, runID int64, des
 	err = s.db.QueryRowContext(ctx, `
 		SELECT allow_bitmask, deny_bitmask, inherited_allow_bitmask,
 		       inherited_deny_bitmask, effective_allow_bitmask, effective_deny_bitmask
-		FROM assignments WHERE run_id=? AND descriptor=? AND security_token=?`,
-		runID, descriptor, token).
+		FROM assignments WHERE run_id=? AND namespace=? AND descriptor=? AND security_token=?`,
+		runID, ns, descriptor, token).
 		Scan(&allow, &deny, &inheritedAllow, &inheritedDeny, &effectiveAllow, &effectiveDeny)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -81,7 +82,7 @@ func (s *Store) PermissionExplanationByRun(ctx context.Context, runID int64, des
 	if err != nil {
 		return nil, err
 	}
-	evidence, err := s.permissionEvidence(ctx, runID, token, bit, membershipPaths)
+	evidence, err := s.permissionEvidence(ctx, runID, ns, token, bit, membershipPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -104,10 +105,10 @@ func (s *Store) subjectByDescriptor(ctx context.Context, runID int64, descriptor
 	return subject, err
 }
 
-func (s *Store) permissionActionByBit(ctx context.Context, runID, bit int64) (permissionAction, error) {
+func (s *Store) permissionActionByBit(ctx context.Context, runID int64, ns string, bit int64) (permissionAction, error) {
 	var action permissionAction
 	err := s.db.QueryRowContext(ctx, `
-		SELECT bit, name, display_name FROM permission_actions WHERE run_id=? AND bit=?`, runID, bit).
+		SELECT bit, name, display_name FROM permission_actions WHERE run_id=? AND namespace=? AND bit=?`, runID, ns, bit).
 		Scan(&action.Bit, &action.Name, &action.DisplayName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return action, ErrNotFound
@@ -125,8 +126,16 @@ func stateForBit(allow, deny, bit int64) PermissionState {
 	return PermissionNotSet
 }
 
+// ancestorTokens returns the meaningful inheritance ancestors of a security
+// token. For Build-namespace tokens (project/folder/pipeline) every path
+// prefix is an ancestor resource. Git branch tokens (\"<repoGUID>/refs/...\")
+// only inherit from their repository, so the intermediate /refs/ segments are
+// skipped.
 func ancestorTokens(token string) []string {
 	parts := strings.Split(token, "/")
+	if len(parts) > 1 && parts[1] == "refs" {
+		return []string{parts[0], token}
+	}
 	out := make([]string, 0, len(parts))
 	for i := range parts {
 		out = append(out, strings.Join(parts[:i+1], "/"))
@@ -190,7 +199,7 @@ func (s *Store) membershipPaths(ctx context.Context, runID int64, subject Subjec
 	return paths, nil
 }
 
-func (s *Store) permissionEvidence(ctx context.Context, runID int64, targetToken string, bit int64, paths map[string][]Subject) ([]PermissionEvidence, error) {
+func (s *Store) permissionEvidence(ctx context.Context, runID int64, ns, targetToken string, bit int64, paths map[string][]Subject) ([]PermissionEvidence, error) {
 	tokens := ancestorTokens(targetToken)
 	tokenOrder := make(map[string]int, len(tokens))
 	for index, token := range tokens {
@@ -200,7 +209,7 @@ func (s *Store) permissionEvidence(ctx context.Context, runID int64, targetToken
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT security_token, descriptor, allow_bitmask, deny_bitmask,
 		       effective_allow_bitmask, effective_deny_bitmask
-		FROM assignments WHERE run_id=? ORDER BY security_token, descriptor`, runID)
+		FROM assignments WHERE run_id=? AND namespace=? ORDER BY security_token, descriptor`, runID, ns)
 	if err != nil {
 		return nil, err
 	}

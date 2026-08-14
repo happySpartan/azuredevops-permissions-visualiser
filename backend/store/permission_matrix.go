@@ -45,7 +45,7 @@ func (s *Store) PermissionMatrixByRun(ctx context.Context, runID int64, projectI
 	var action MatrixAction
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT bit, name, display_name FROM permission_actions
-		WHERE run_id=? AND bit=?`, runID, bit).Scan(&action.Bit, &action.Name, &action.DisplayName); err != nil {
+		WHERE run_id=? AND namespace=? AND bit=?`, runID, NamespaceBuild, bit).Scan(&action.Bit, &action.Name, &action.DisplayName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -60,8 +60,8 @@ func (s *Store) PermissionMatrixByRun(ctx context.Context, runID int64, projectI
 		       s.display_name, s.subject_kind, s.origin
 		FROM assignments a
 		JOIN subjects s ON s.run_id=a.run_id AND s.descriptor=a.descriptor
-		WHERE a.run_id=? AND (a.security_token=? OR a.security_token LIKE ?)
-		ORDER BY a.security_token, s.display_name, a.descriptor`, runID, projectID, projectID+"/%")
+		WHERE a.run_id=? AND a.namespace=? AND (a.security_token=? OR a.security_token LIKE ?)
+		ORDER BY a.security_token, s.display_name, a.descriptor`, runID, NamespaceBuild, projectID, projectID+"/%")
 	if err != nil {
 		return nil, fmt.Errorf("store: matrix assignments: %w", err)
 	}

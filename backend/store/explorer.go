@@ -7,12 +7,13 @@ import (
 	"strings"
 )
 
-// ResourceProject is a project and its collected pipeline resources.
+// ResourceProject is a project and its collected resources.
 type ResourceProject struct {
-	ID        string             `json:"id"`
-	Name      string             `json:"name"`
-	Folders   []ResourceFolder   `json:"folders"`
-	Pipelines []ResourcePipeline `json:"pipelines"`
+	ID           string               `json:"id"`
+	Name         string               `json:"name"`
+	Folders      []ResourceFolder     `json:"folders"`
+	Pipelines    []ResourcePipeline   `json:"pipelines"`
+	Repositories []ResourceRepository `json:"repositories"`
 }
 
 // ResourceFolder is a collected pipeline folder.
@@ -28,6 +29,19 @@ type ResourcePipeline struct {
 	QueueStatus string `json:"queueStatus"`
 }
 
+// ResourceRepository is a collected Git repository (Git namespace).
+type ResourceRepository struct {
+	ID            string           `json:"id"`
+	Name          string           `json:"name"`
+	DefaultBranch string           `json:"defaultBranch"`
+	Branches      []ResourceBranch `json:"branches"`
+}
+
+// ResourceBranch is a collected branch within a Git repository.
+type ResourceBranch struct {
+	Name string `json:"name"` // full ref, e.g. refs/heads/main
+}
+
 // ResourcesByRun returns the collected resource hierarchy for an analysis run.
 func (s *Store) ResourcesByRun(ctx context.Context, runID int64) ([]ResourceProject, error) {
 	projects, err := s.ProjectsByRun(ctx, runID)
@@ -40,10 +54,11 @@ func (s *Store) ResourcesByRun(ctx context.Context, runID int64) ([]ResourceProj
 	for _, project := range projects {
 		byID[project.OrgID] = len(out)
 		out = append(out, ResourceProject{
-			ID:        project.OrgID,
-			Name:      project.Name,
-			Folders:   []ResourceFolder{},
-			Pipelines: []ResourcePipeline{},
+			ID:           project.OrgID,
+			Name:         project.Name,
+			Folders:      []ResourceFolder{},
+			Pipelines:    []ResourcePipeline{},
+			Repositories: []ResourceRepository{},
 		})
 	}
 
@@ -83,7 +98,56 @@ func (s *Store) ResourcesByRun(ctx context.Context, runID int64) ([]ResourceProj
 			out[index].Pipelines = append(out[index].Pipelines, pipeline)
 		}
 	}
-	return out, pipelineRows.Err()
+	if err := pipelineRows.Err(); err != nil {
+		return nil, err
+	}
+
+	repoRows, err := s.db.QueryContext(ctx, `
+		SELECT repository_id, name, project_id, default_branch
+		FROM repositories WHERE run_id=? ORDER BY name`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("store: resources repositories: %w", err)
+	}
+	defer repoRows.Close()
+	repoByID := map[string]ResourceRepository{}
+	repoIndex := map[string]int{}
+	for repoRows.Next() {
+		var repo ResourceRepository
+		var projectID string
+		if err := repoRows.Scan(&repo.ID, &repo.Name, &projectID, &repo.DefaultBranch); err != nil {
+			return nil, err
+		}
+		repo.Branches = []ResourceBranch{}
+		repoByID[repo.ID] = repo
+		repoIndex[repo.ID] = len(repoByID) - 1
+		if index, ok := byID[projectID]; ok {
+			out[index].Repositories = append(out[index].Repositories, repo)
+		}
+	}
+	if err := repoRows.Err(); err != nil {
+		return nil, err
+	}
+
+	branchRows, err := s.db.QueryContext(ctx, `
+		SELECT repository_id, name FROM branches WHERE run_id=? ORDER BY name`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("store: resources branches: %w", err)
+	}
+	defer branchRows.Close()
+	for branchRows.Next() {
+		var repoID, name string
+		if err := branchRows.Scan(&repoID, &name); err != nil {
+			return nil, err
+		}
+		for i, repo := range out {
+			for j, r := range repo.Repositories {
+				if r.ID == repoID {
+					out[i].Repositories[j].Branches = append(out[i].Repositories[j].Branches, ResourceBranch{Name: name})
+				}
+			}
+		}
+	}
+	return out, branchRows.Err()
 }
 
 // Subject is a user or group collected for an analysis run.

@@ -1,0 +1,34 @@
+# Progress tracker
+
+Status legend: `[ ]` pending · `[/]` in progress · `[x]` completed (kept for history)
+
+This is the canonical task tracker for the repository. Update it whenever a task
+changes status. Specs and decisions live in `docs/product-discovery.md`; ADRs
+live in `docs/adr/`.
+
+## Released
+
+- [x] v1.0.0 — YAML pipeline + pipeline-folder permissions explorer (projects → root folder → nested folder → pipeline), subject→resources and resources→subjects navigation, effective-permission explanations with Direct/Inherited and User/Via-group provenance, scoped permission matrix, group membership explorer, per-view CSV export, live collection progress, ACL identity resolution, single embedded Go + React binary (Linux/Windows x64), ghcr.io container image.
+  Tag `v1.0.0` at `511fdc8`; release URL: https://github.com/happySpartan/azuredevops-permissions-visualiser/releases/tag/v1.0.0
+
+## Backlog
+
+### Collection & namespaces
+
+- [x] Git namespace: repositories + branches (Git Repositories namespace `2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87`). Collect repos and head refs per project, ACLs for repo and branch tokens, namespace-aware store, resources explorer hierarchy, subject/resource/explanation views decode against the correct namespace's actions, run-wide CSV export includes namespace column.
+- [ ] Classic build pipelines (non-YAML build definitions share the Build namespace; add the classic-definition collection path)
+- [ ] Classic release pipelines (distinct permissions path — separate namespace work)
+- [ ] Pipeline resource permissions: agent pools, service connections, variable groups (BuildAdministration namespace)
+- [ ] Org/project-level namespaces beyond Build and Git (e.g. WorkItemTracking, VersionControlItems) — decide scope before starting
+- [ ] Native `.xlsx` workbook export (run coverage, effective permissions, assignments, subjects/memberships, warnings) — v1 decided CSV only; `.xlsx` is the follow-up
+
+### Platform & engineering
+
+- [ ] CI container job: resolve trivy HIGH/CRITICAL findings in the azure-cli base image (pre-existing CVEs in Python packages, e.g. cryptography). Options: pin a newer `mcr.microsoft.com/azure-cli` image, split the scan to a pinned-tooling stage, or document an accepted-risk exemption.
+- [ ] Cosmetic: commit `511fdc8` message has a shell-eaten backtick phrase. Not worth rewriting pushed history; leave as-is unless history is ever rewritten.
+
+## Notes
+
+- Issue tracker: GitHub Issues is intentionally **not used** (empty). See `docs/agents/issue-tracker.md`.
+- Workflow: complete work → `make build` + `go vet ./...` + `go test ./...` + frontend `npm run build`/`npm test` green → commit AND push to `origin/main`.
+- Live verification against the real org requires `AZDO_ORG` (e.g. `happyspartan`) and an authenticated Azure CLI (`az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798`); MSA pass-through header needed for MSA accounts.

@@ -31,8 +31,8 @@ func exportTestStore(t *testing.T) *store.Store {
 	}
 	_ = tx.AddProject(ctx, "p1", "Alpha")
 	_ = tx.AddSubject(ctx, "u-1", "Alice", "aad", "user")
-	_ = tx.AddPermissionAction(ctx, 1, "ViewBuilds", "View builds")
-	_ = tx.AddAssignmentExtended(ctx, "p1", "u-1", 1, 0, 0, 0, 1, 0)
+	_ = tx.AddPermissionAction(ctx, store.NamespaceBuild, 1, "ViewBuilds", "View builds")
+	_ = tx.AddAssignmentExtended(ctx, store.NamespaceBuild, "p1", "u-1", 1, 0, 0, 0, 1, 0)
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}

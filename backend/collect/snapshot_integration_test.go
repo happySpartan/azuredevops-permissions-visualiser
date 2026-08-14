@@ -75,6 +75,9 @@ func TestRecordedSnapshotCollectionCommitsQueryableAnalysis(t *testing.T) {
 	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.BuildNamespaceID, func(w http.ResponseWriter, r *http.Request) {
 		serve(snapshot.ACLByToken[r.URL.Query().Get("token")])(w, r)
 	})
+	mux.HandleFunc("/org/Alpha/_apis/git/repositories", func(w http.ResponseWriter, r *http.Request) {
+		serve(json.RawMessage(`{"value":[]}`))(w, r)
+	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 

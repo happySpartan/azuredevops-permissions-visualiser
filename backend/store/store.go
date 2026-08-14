@@ -47,11 +47,13 @@ type Run struct {
 	CompletedAt *time.Time
 	Error       string
 	// Counts captured at completion.
-	ProjectCount    int
-	FolderCount     int
-	PipelineCount   int
-	SubjectCount    int
-	AssignmentCount int
+	ProjectCount     int
+	FolderCount      int
+	PipelineCount    int
+	RepositoryCount  int
+	BranchCount      int
+	SubjectCount     int
+	AssignmentCount  int
 }
 
 // Store wraps a SQLite database.
@@ -163,6 +165,24 @@ CREATE TABLE IF NOT EXISTS pipelines (
     UNIQUE(run_id, project_id, definition_id)
 );
 
+CREATE TABLE IF NOT EXISTS repositories (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id         INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    project_id     TEXT    NOT NULL,
+    repository_id  TEXT    NOT NULL,
+    name           TEXT    NOT NULL,
+    default_branch TEXT    NOT NULL DEFAULT '',
+    UNIQUE(run_id, project_id, repository_id)
+);
+
+CREATE TABLE IF NOT EXISTS branches (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    repository_id TEXT    NOT NULL,
+    name          TEXT    NOT NULL,
+    UNIQUE(run_id, repository_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS subjects (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id      INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -184,6 +204,7 @@ CREATE TABLE IF NOT EXISTS memberships (
 CREATE TABLE IF NOT EXISTS assignments (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id        INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    namespace     TEXT    NOT NULL DEFAULT 'Build',
     security_token TEXT   NOT NULL,
     descriptor    TEXT    NOT NULL,
     allow_bitmask  INTEGER NOT NULL,
@@ -193,16 +214,17 @@ CREATE TABLE IF NOT EXISTS assignments (
     inherited_deny_bitmask  INTEGER NOT NULL DEFAULT 0,
     effective_allow_bitmask INTEGER NOT NULL DEFAULT 0,
     effective_deny_bitmask  INTEGER NOT NULL DEFAULT 0,
-    UNIQUE(run_id, security_token, descriptor)
+    UNIQUE(run_id, namespace, security_token, descriptor)
 );
 
 CREATE TABLE IF NOT EXISTS permission_actions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id       INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    namespace    TEXT    NOT NULL DEFAULT 'Build',
     bit          INTEGER NOT NULL,
     name         TEXT    NOT NULL,
     display_name TEXT    NOT NULL,
-    UNIQUE(run_id, bit)
+    UNIQUE(run_id, namespace, bit)
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
@@ -217,20 +239,26 @@ CREATE INDEX IF NOT EXISTS idx_permission_actions_run ON permission_actions(run_
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
-	columns := []struct{ name, definition string }{
-		{"inherited_allow_bitmask", "INTEGER NOT NULL DEFAULT 0"},
-		{"inherited_deny_bitmask", "INTEGER NOT NULL DEFAULT 0"},
-		{"effective_allow_bitmask", "INTEGER NOT NULL DEFAULT 0"},
-		{"effective_deny_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+	columns := []struct{ table, name, definition string }{
+		{"assignments", "inherited_allow_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+		{"assignments", "inherited_deny_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+		{"assignments", "effective_allow_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+		{"assignments", "effective_deny_bitmask", "INTEGER NOT NULL DEFAULT 0"},
+		{"assignments", "namespace", "TEXT NOT NULL DEFAULT 'Build'"},
+		{"permission_actions", "namespace", "TEXT NOT NULL DEFAULT 'Build'"},
+		{"runs", "repository_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "branch_count", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, column := range columns {
 		var count int
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('assignments') WHERE name=?`, column.name).Scan(&count); err != nil {
-			return fmt.Errorf("store: inspect assignments: %w", err)
+		tableName := column.table
+		colName := column.name
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?`, tableName, colName).Scan(&count); err != nil {
+			return fmt.Errorf("store: inspect %s: %w", tableName, err)
 		}
 		if count == 0 {
-			if _, err := s.db.Exec(`ALTER TABLE assignments ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
-				return fmt.Errorf("store: add %s: %w", column.name, err)
+			if _, err := s.db.Exec(`ALTER TABLE ` + tableName + ` ADD COLUMN ` + colName + ` ` + column.definition); err != nil {
+				return fmt.Errorf("store: add %s.%s: %w", tableName, colName, err)
 			}
 		}
 	}
@@ -269,13 +297,15 @@ func (s *Store) LatestRunID(ctx context.Context) (int64, error) {
 func (s *Store) RunByID(ctx context.Context, id int64) (*Run, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, org, status, started_at, completed_at, error,
-		       project_count, folder_count, pipeline_count, subject_count, assignment_count
+		       project_count, folder_count, pipeline_count, repository_count, branch_count,
+		       subject_count, assignment_count
 		FROM runs WHERE id = ?`, id)
 	r := &Run{}
 	var started string
 	var completed, errStr sql.NullString
 	if err := row.Scan(&r.ID, &r.Org, &r.Status, &started, &completed, &errStr,
-		&r.ProjectCount, &r.FolderCount, &r.PipelineCount, &r.SubjectCount, &r.AssignmentCount); err != nil {
+		&r.ProjectCount, &r.FolderCount, &r.PipelineCount, &r.RepositoryCount, &r.BranchCount,
+		&r.SubjectCount, &r.AssignmentCount); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -307,9 +337,11 @@ func (s *Store) CompleteRun(ctx context.Context, runID int64, counts RunCounts) 
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE runs SET status=?, completed_at=?, project_count=?, folder_count=?,
-			pipeline_count=?, subject_count=?, assignment_count=? WHERE id=?`,
+			pipeline_count=?, repository_count=?, branch_count=?,
+			subject_count=?, assignment_count=? WHERE id=?`,
 		StatusComplete, time.Now().UTC().Format(time.RFC3339Nano),
-		counts.Projects, counts.Folders, counts.Pipelines, counts.Subjects, counts.Assignments,
+		counts.Projects, counts.Folders, counts.Pipelines, counts.Repositories, counts.Branches,
+		counts.Subjects, counts.Assignments,
 		runID); err != nil {
 		return err
 	}
@@ -346,6 +378,12 @@ func (s *Store) FailRun(ctx context.Context, runID int64, status Status, msg str
 	if _, err := tx.ExecContext(ctx, `DELETE FROM pipelines WHERE run_id=?`, runID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM repositories WHERE run_id=?`, runID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM branches WHERE run_id=?`, runID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM subjects WHERE run_id=?`, runID); err != nil {
 		return err
 	}
@@ -372,9 +410,11 @@ func (s *Store) DeleteAll(ctx context.Context) error {
 
 // RunCounts summarises a completed collection.
 type RunCounts struct {
-	Projects    int
-	Folders     int
-	Pipelines   int
-	Subjects    int
-	Assignments int
+	Projects     int
+	Folders      int
+	Pipelines    int
+	Repositories int
+	Branches     int
+	Subjects     int
+	Assignments  int
 }

@@ -61,6 +61,55 @@ func (t *Tx) TokensByRunTx(ctx context.Context) ([]string, error) {
 	return tokensQuery(ctx, t.tx, t.runID)
 }
 
+// GitTokensByRunTx returns the distinct Git-namespace security tokens for the
+// run: repository-level tokens and branch tokens (with their repo GUID prefix).
+func (t *Tx) GitTokensByRunTx(ctx context.Context) ([]string, error) {
+	return gitTokensQuery(ctx, t.tx, t.runID)
+}
+
+func gitTokensQuery(ctx context.Context, q queryer, runID int64) ([]string, error) {
+	tok := map[string]bool{}
+	rows, err := q.QueryContext(ctx, `SELECT repository_id FROM repositories WHERE run_id=?`, runID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		tok[id] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err = q.QueryContext(ctx, `SELECT repository_id, name FROM branches WHERE run_id=?`, runID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		tok[id+"/"+name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(tok))
+	for t := range tok {
+		out = append(out, t)
+	}
+	return out, nil
+}
+
 func tokensQuery(ctx context.Context, q queryer, runID int64) ([]string, error) {
 	tok := map[string]bool{}
 
@@ -125,6 +174,12 @@ func tokensQuery(ctx context.Context, q queryer, runID int64) ([]string, error) 
 	}
 	return out, nil
 }
+
+// NamespaceBuild is the Build security namespace GUID, matching azdo.
+const NamespaceBuild = "33344d9c-fc72-4d6f-aba5-fa317101a7e9"
+
+// NamespaceGit is the Git Repositories security namespace GUID, matching azdo.
+const NamespaceGit = "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87"
 
 // BuildToken assembles a Build-namespace security token for a project, optional
 // folder path, and optional definition id. Mirrors azdo.BuildSecurityToken but

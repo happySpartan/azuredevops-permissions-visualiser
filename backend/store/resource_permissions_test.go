@@ -16,12 +16,12 @@ func TestResourcePermissionsReturnsSubjectsAndActions(t *testing.T) {
 	_ = tx.AddPipeline(ctx, "p1", 12, "Deploy", "/Shared", "enabled")
 	_ = tx.AddSubject(ctx, "u-1", "Alice", "aad", "user")
 	_ = tx.AddSubject(ctx, "g-1", "Devs", "vsts", "group")
-	_ = tx.AddPermissionAction(ctx, 1, "ViewBuilds", "View builds")
-	_ = tx.AddPermissionAction(ctx, 2, "QueueBuilds", "Queue builds")
+	_ = tx.AddPermissionAction(ctx, NamespaceBuild, 1, "ViewBuilds", "View builds")
+	_ = tx.AddPermissionAction(ctx, NamespaceBuild, 2, "QueueBuilds", "Queue builds")
 	// Alice has direct ViewBuilds+QueueBuilds on the pipeline
-	_ = tx.AddAssignmentExtended(ctx, "p1/Shared/12", "u-1", 3, 0, 0, 0, 3, 0)
+	_ = tx.AddAssignmentExtended(ctx, NamespaceBuild, "p1/Shared/12", "u-1", 3, 0, 0, 0, 3, 0)
 	// Devs group has direct ViewBuilds on the folder
-	_ = tx.AddAssignmentExtended(ctx, "p1/Shared", "g-1", 1, 0, 0, 0, 1, 0)
+	_ = tx.AddAssignmentExtended(ctx, NamespaceBuild, "p1/Shared", "g-1", 1, 0, 0, 0, 1, 0)
 	_ = tx.Commit()
 	_ = s.CompleteRun(ctx, runID, tx.Counts())
 
@@ -60,8 +60,8 @@ func TestResourcePermissionsNotFound(t *testing.T) {
 	tx, _ := s.BeginTx(ctx, runID)
 	_ = tx.AddProject(ctx, "p1", "Alpha")
 	_ = tx.AddSubject(ctx, "u-1", "Alice", "aad", "user")
-	_ = tx.AddPermissionAction(ctx, 1, "ViewBuilds", "View builds")
-	_ = tx.AddAssignmentExtended(ctx, "p1", "u-1", 1, 0, 0, 0, 1, 0)
+	_ = tx.AddPermissionAction(ctx, NamespaceBuild, 1, "ViewBuilds", "View builds")
+	_ = tx.AddAssignmentExtended(ctx, NamespaceBuild, "p1", "u-1", 1, 0, 0, 0, 1, 0)
 	_ = tx.Commit()
 	_ = s.CompleteRun(ctx, runID, tx.Counts())
 

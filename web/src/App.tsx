@@ -13,6 +13,8 @@ interface Run {
   ProjectCount: number
   FolderCount: number
   PipelineCount: number
+  RepositoryCount: number
+  BranchCount: number
   SubjectCount: number
   AssignmentCount: number
 }
@@ -45,11 +47,23 @@ interface Pipeline {
   queueStatus: string
 }
 
+interface Branch {
+  name: string
+}
+
+interface Repository {
+  id: string
+  name: string
+  defaultBranch: string
+  branches: Branch[]
+}
+
 interface Project {
   id: string
   name: string
   folders: { path: string }[]
   pipelines: Pipeline[]
+  repositories: Repository[]
 }
 
 type View = 'overview' | 'subjects' | 'resources' | 'matrix'
@@ -196,7 +210,7 @@ function Overview({ run, busy, collectionStatus, onCollect, onDelete, onExplore 
         <div className="empty-icon">↻</div>
         <p className="eyebrow">Point-in-time analysis</p>
         <h1>Understand who can do what</h1>
-        <p>Collect pipeline and pipeline-folder permissions from one Azure DevOps organization, then explore the result locally.</p>
+        <p>Collect pipeline, pipeline-folder, and Git repository permissions from one Azure DevOps organization, then explore the result locally.</p>
         <button className="button primary" disabled={busy} onClick={onCollect}>{busy ? 'Collecting…' : 'Collect organization'}</button>
         {busy && <CollectionProgress status={collectionStatus} />}
         <small>Requires AZDO_ORG and an authenticated Azure CLI.</small>
@@ -209,6 +223,8 @@ function Overview({ run, busy, collectionStatus, onCollect, onDelete, onExplore 
     ['Projects', run.ProjectCount],
     ['Pipeline folders', run.FolderCount],
     ['Pipelines', run.PipelineCount],
+    ['Repositories', run.RepositoryCount],
+    ['Branches', run.BranchCount],
     ['Subjects', run.SubjectCount],
     ['Assignments', run.AssignmentCount],
   ]
@@ -308,10 +324,10 @@ function Resources() {
 
   return (
     <section>
-      <div className="page-heading"><div><p className="eyebrow">Access explorer</p><h1>Resources</h1><p>Browse the collected project, pipeline-folder, and YAML pipeline hierarchy.</p></div></div>
+      <div className="page-heading"><div><p className="eyebrow">Access explorer</p><h1>Resources</h1><p>Browse the collected project, pipeline-folder, YAML pipeline, and Git repository hierarchy.</p></div></div>
       {error && <p className="inline-error">{error}</p>}
       <div className="resource-list">
-        {projects.map((project) => <details className="panel project-card" open key={project.id}><summary><div><strong>{project.name}</strong><span>{project.folders.length} folders · {project.pipelines.length} pipelines</span></div><span className="project-badge">Project</span></summary>
+        {projects.map((project) => <details className="panel project-card" open key={project.id}><summary><div><strong>{project.name}</strong><span>{project.folders.length} folders · {project.pipelines.length} pipelines · {project.repositories.length} repositories</span></div><span className="project-badge">Project</span></summary>
           <div className="resource-grid">
             {project.folders.map((folder) =>
               <div className="resource-row selectable" key={`folder-${folder.path}`} role="button" tabIndex={0}
@@ -325,7 +341,30 @@ function Resources() {
                 onKeyDown={(event) => { if (event.key === 'Enter') setSelected({ token: `${project.id}${pipeline.folderPath}/${pipeline.id}`, name: pipeline.name, type: 'pipeline', path: pipeline.folderPath, projectName: project.name }) }}>
                 <span className="resource-icon pipeline">▷</span><div><strong>{pipeline.name}</strong><span>{pipeline.folderPath || '/'} · {pipeline.queueStatus || 'status unknown'}</span></div>
               </div>)}
-            {project.folders.length + project.pipelines.length === 0 && <p className="table-empty">No pipeline resources were collected for this project.</p>}
+            {project.repositories.map((repository) => (
+              <details className="resource-row repository-group" key={`repository-${repository.id}`}>
+                <summary>
+                  <span className="resource-icon repository">⑂</span>
+                  <div><strong>{repository.name}</strong><span>Git repository{repository.defaultBranch ? ` · ${repository.defaultBranch}` : ''}</span></div>
+                  <span className="repository-count">{repository.branches.length} branches</span>
+                </summary>
+                <div className="branch-list">
+                  <div className="resource-row selectable branch" role="button" tabIndex={0}
+                    onClick={() => setSelected({ token: repository.id, name: repository.name, type: 'repository', path: '', projectName: project.name })}
+                    onKeyDown={(event) => { if (event.key === 'Enter') setSelected({ token: repository.id, name: repository.name, type: 'repository', path: '', projectName: project.name }) }}>
+                    <span className="resource-icon repository">⑂</span><div><strong>{repository.name}</strong><span>Repository-level permissions</span></div>
+                  </div>
+                  {repository.branches.map((branch) => {
+                    const branchName = branch.name.replace(/^refs\/heads\//, '')
+                    return <div className="resource-row selectable branch" key={`branch-${repository.id}-${branch.name}`} role="button" tabIndex={0}
+                      onClick={() => setSelected({ token: `${repository.id}/${branch.name}`, name: branchName, type: 'branch', path: branch.name, projectName: project.name })}
+                      onKeyDown={(event) => { if (event.key === 'Enter') setSelected({ token: `${repository.id}/${branch.name}`, name: branchName, type: 'branch', path: branch.name, projectName: project.name }) }}>
+                      <span className="resource-icon branch">⎇</span><div><strong>{branchName}</strong><span>Branch permissions</span></div>
+                    </div>
+                  })}
+                </div>
+              </details>))}
+            {project.folders.length + project.pipelines.length + project.repositories.length === 0 && <p className="table-empty">No resources were collected for this project.</p>}
           </div>
         </details>)}
       </div>

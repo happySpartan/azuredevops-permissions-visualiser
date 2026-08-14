@@ -23,10 +23,13 @@ type fakeServer struct {
 	projectErr   bool // fail the projects phase
 	foldersErr   bool
 	defsErr      bool
+	reposErr     bool
+	branchesErr  bool
 	usersErr     bool
 	groupsErr    bool
 	membersErr   bool
 	aclErr       bool
+	gitACLErr    bool
 	aclOnlyGroup bool // ACL identity is omitted by the Graph groups listing
 	projectCalls int
 }
@@ -65,6 +68,30 @@ func (f *fakeServer) handler() http.Handler {
 		}})
 	})
 
+	mux.HandleFunc("/org/Alpha/_apis/git/repositories", func(w http.ResponseWriter, r *http.Request) {
+		if f.reposErr {
+			http.Error(w, `{"message":"repos denied"}`, http.StatusForbidden)
+			return
+		}
+		writeJSON(w, map[string]any{"value": []azdo.GitRepository{
+			{ID: "REPO-1", Name: "mainrepo", DefaultBranch: "refs/heads/main", Project: struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			}{ID: "PROJ-A", Name: "Alpha"}},
+		}})
+	})
+
+	mux.HandleFunc("/org/Alpha/_apis/git/repositories/REPO-1/refs", func(w http.ResponseWriter, r *http.Request) {
+		if f.branchesErr {
+			http.Error(w, `{"message":"branches denied"}`, http.StatusForbidden)
+			return
+		}
+		writeJSON(w, map[string]any{"value": []azdo.GitBranch{
+			{Name: "refs/heads/main"},
+			{Name: "refs/heads/develop"},
+		}})
+	})
+
 	mux.HandleFunc("/org/_apis/graph/users", func(w http.ResponseWriter, r *http.Request) {
 		if f.usersErr {
 			http.Error(w, `{"message":"users denied"}`, http.StatusForbidden)
@@ -96,11 +123,23 @@ func (f *fakeServer) handler() http.Handler {
 	})
 
 	mux.HandleFunc("/org/_apis/securitynamespaces/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"value": []map[string]any{{
-			"namespaceId": azdo.BuildNamespaceID,
-			"name":        "Build",
-			"actions":     []azdo.ACE{{Bit: 1, Name: "ViewBuilds"}},
-		}}})
+		nsID := strings.TrimPrefix(r.URL.Path, "/org/_apis/securitynamespaces/")
+		switch nsID {
+		case azdo.BuildNamespaceID:
+			writeJSON(w, map[string]any{"value": []map[string]any{{
+				"namespaceId": azdo.BuildNamespaceID,
+				"name":        "Build",
+				"actions":     []azdo.ACE{{Bit: 1, Name: "ViewBuilds"}},
+			}}})
+		case azdo.GitNamespaceID:
+			writeJSON(w, map[string]any{"value": []map[string]any{{
+				"namespaceId": azdo.GitNamespaceID,
+				"name":        "Git Repositories",
+				"actions":     []azdo.ACE{{Bit: 1, Name: "Administer"}, {Bit: 2, Name: "GenericRead"}},
+			}}})
+		default:
+			http.Error(w, `{"message":"unknown namespace"}`, http.StatusNotFound)
+		}
 	})
 
 	// The identity API echoes each general descriptor's Graph (subject)
@@ -140,6 +179,22 @@ func (f *fakeServer) handler() http.Handler {
 		case "PROJ-A/Shared":
 			entries["u-1"] = azdo.ACLCE{Descriptor: "u-1", Allow: 1, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 1}}
 		case "PROJ-A/Shared/12":
+			entries["g-1"] = azdo.ACLCE{Descriptor: "g-1", Allow: 2, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 2}}
+		}
+		writeJSON(w, map[string]any{"value": []azdo.ACL{{Token: token, Entries: entries}}})
+	})
+
+	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.GitNamespaceID, func(w http.ResponseWriter, r *http.Request) {
+		if f.gitACLErr {
+			http.Error(w, `{"message":"git acl denied"}`, http.StatusForbidden)
+			return
+		}
+		token := r.URL.Query().Get("token")
+		entries := map[string]azdo.ACLCE{}
+		switch token {
+		case "REPO-1":
+			entries["u-1"] = azdo.ACLCE{Descriptor: "u-1", Allow: 3, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 3}}
+		case "REPO-1/refs/heads/main":
 			entries["g-1"] = azdo.ACLCE{Descriptor: "g-1", Allow: 2, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 2}}
 		}
 		writeJSON(w, map[string]any{"value": []azdo.ACL{{Token: token, Entries: entries}}})
@@ -186,7 +241,7 @@ func TestCollectReportsOrderedPhases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectWithProgress: %v", err)
 	}
-	want := []Phase{PhaseProjects, PhaseBuilds, PhaseSubjects, PhasePermissions, PhaseCommitting, PhaseComplete}
+	want := []Phase{PhaseProjects, PhaseBuilds, PhaseRepositories, PhaseSubjects, PhasePermissions, PhaseCommitting, PhaseComplete}
 	if len(phases) != len(want) {
 		t.Fatalf("phases = %v, want %v", phases, want)
 	}
@@ -244,11 +299,15 @@ func TestCollectSuccess(t *testing.T) {
 	if res.Counts.Projects != 1 || res.Counts.Folders != 1 || res.Counts.Pipelines != 1 {
 		t.Fatalf("unexpected counts: %+v", res.Counts)
 	}
+	if res.Counts.Repositories != 1 || res.Counts.Branches != 2 {
+		t.Fatalf("repository counts = %+v, want 1 repo and 2 branches", res.Counts)
+	}
 	if res.Counts.Subjects != 2 { // 1 user + 1 group
 		t.Fatalf("subject count = %d, want 2", res.Counts.Subjects)
 	}
-	if res.Counts.Assignments != 3 {
-		t.Fatalf("assignment count = %d, want 3", res.Counts.Assignments)
+	// Build: 3 assignments. Git: 1 (REPO-1) + 1 (branch) = 2. Total 5.
+	if res.Counts.Assignments != 5 {
+		t.Fatalf("assignment count = %d, want 5", res.Counts.Assignments)
 	}
 
 	run, err := st.RunByID(context.Background(), res.RunID)

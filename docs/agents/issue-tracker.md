@@ -1,25 +1,10 @@
-# Issue tracker: GitHub
+# Issue tracker: Markdown progress tracker
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs for this repo are tracked in `docs/agents/progress-tracker.md`.
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`.
-- **Apply or remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`.
-- **Close**: `gh issue close <number> --comment "..."`.
-
-Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
-
-## Pull requests as a triage surface
-
-**PRs as a request surface: no.** Set this to `yes` if this repo later treats external PRs as feature requests.
-
-GitHub shares one number space across issues and PRs. Resolve a bare `#42` with `gh pr view 42`, falling back to `gh issue view 42`.
-
-## Skill conventions
-
-- When a skill says **publish to the issue tracker**, create a GitHub issue.
-- When a skill says **fetch the relevant ticket**, run `gh issue view <number> --comments`.
+- **Read the tracker**: open `docs/agents/progress-tracker.md` and review the status column.
+- **Update the tracker**: edit the markdown file directly, changing the status of the relevant item. Use `[ ]` for pending, `[/]` for in progress, `[x]` for completed.
+- **Add a new item**: insert a new row to the tracker table in the appropriate section. Keep descriptions concise, actionable, and one item per feature.
+- **Close an item**: mark it `[x]`. Do not delete it — leave it in place so the history is visible.

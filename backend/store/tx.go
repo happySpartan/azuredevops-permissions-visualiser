@@ -69,6 +69,30 @@ func (t *Tx) AddPipeline(ctx context.Context, projectID string, definitionID int
 	return t.countIfChanged(res, &t.counts.Pipelines)
 }
 
+// AddRepository records a Git repository for a project.
+func (t *Tx) AddRepository(ctx context.Context, projectID, repositoryID, name, defaultBranch string) error {
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO repositories (run_id, project_id, repository_id, name, default_branch)
+		VALUES (?, ?, ?, ?, ?)`,
+		t.runID, projectID, repositoryID, name, defaultBranch)
+	if err != nil {
+		return fmt.Errorf("store: add repository: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Repositories)
+}
+
+// AddBranch records a branch within a repository.
+func (t *Tx) AddBranch(ctx context.Context, repositoryID, name string) error {
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO branches (run_id, repository_id, name)
+		VALUES (?, ?, ?)`,
+		t.runID, repositoryID, name)
+	if err != nil {
+		return fmt.Errorf("store: add branch: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Branches)
+}
+
 // AddSubject records a user or group.
 func (t *Tx) AddSubject(ctx context.Context, descriptor, displayName, origin, subjectKind string) error {
 	res, err := t.tx.ExecContext(ctx, `
@@ -110,14 +134,14 @@ func (t *Tx) AddAssignment(ctx context.Context, securityToken, descriptor string
 }
 
 // AddAssignmentExtended records explicit, inherited, and effective masks as
-// reported by Azure DevOps for one access control entry.
-func (t *Tx) AddAssignmentExtended(ctx context.Context, securityToken, descriptor string, allow, deny, inheritedAllow, inheritedDeny, effectiveAllow, effectiveDeny int64) error {
+// reported by Azure DevOps for one access control entry in namespace ns.
+func (t *Tx) AddAssignmentExtended(ctx context.Context, ns, securityToken, descriptor string, allow, deny, inheritedAllow, inheritedDeny, effectiveAllow, effectiveDeny int64) error {
 	res, err := t.tx.ExecContext(ctx, `
 		INSERT OR REPLACE INTO assignments
-		(run_id, security_token, descriptor, allow_bitmask, deny_bitmask, inherited,
+		(run_id, namespace, security_token, descriptor, allow_bitmask, deny_bitmask, inherited,
 		 inherited_allow_bitmask, inherited_deny_bitmask, effective_allow_bitmask, effective_deny_bitmask)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.runID, securityToken, descriptor, allow, deny, inheritedAllow|inheritedDeny != 0,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.runID, ns, securityToken, descriptor, allow, deny, inheritedAllow|inheritedDeny != 0,
 		inheritedAllow, inheritedDeny, effectiveAllow, effectiveDeny)
 	if err != nil {
 		return fmt.Errorf("store: add extended assignment: %w", err)
@@ -125,11 +149,11 @@ func (t *Tx) AddAssignmentExtended(ctx context.Context, securityToken, descripto
 	return t.countIfChanged(res, &t.counts.Assignments)
 }
 
-// AddPermissionAction records one action from the Build security namespace.
-func (t *Tx) AddPermissionAction(ctx context.Context, bit int64, name, displayName string) error {
+// AddPermissionAction records one action from a security namespace.
+func (t *Tx) AddPermissionAction(ctx context.Context, ns string, bit int64, name, displayName string) error {
 	_, err := t.tx.ExecContext(ctx, `
-		INSERT OR REPLACE INTO permission_actions (run_id, bit, name, display_name)
-		VALUES (?, ?, ?, ?)`, t.runID, bit, name, displayName)
+		INSERT OR REPLACE INTO permission_actions (run_id, namespace, bit, name, display_name)
+		VALUES (?, ?, ?, ?, ?)`, t.runID, ns, bit, name, displayName)
 	if err != nil {
 		return fmt.Errorf("store: add permission action: %w", err)
 	}

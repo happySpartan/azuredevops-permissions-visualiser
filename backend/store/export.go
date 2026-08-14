@@ -143,27 +143,51 @@ func (s *Store) ExportGroupMembershipCSV(ctx context.Context, runID int64, descr
 }
 
 func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, descriptor string, w io.Writer) error {
-	actions, err := permissionActionsByRun(ctx, s.db, runID)
+	byNamespace, err := namespaceActionsByRun(ctx, s.db, runID)
 	if err != nil {
 		return fmt.Errorf("store: export actions: %w", err)
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT a.security_token, a.descriptor,
+		SELECT a.namespace, a.security_token, a.descriptor,
 		       a.allow_bitmask, a.deny_bitmask,
 		       a.inherited_allow_bitmask, a.inherited_deny_bitmask,
 		       a.effective_allow_bitmask, a.effective_deny_bitmask,
-		       s.display_name, s.subject_kind, s.origin,
-		       p.name AS project_name
+		       s.display_name, s.subject_kind, s.origin
 		FROM assignments a
 		JOIN subjects s ON s.run_id = a.run_id AND s.descriptor = a.descriptor
-		LEFT JOIN projects p ON p.run_id = a.run_id AND p.org_id = SUBSTR(a.security_token, 1, INSTR(a.security_token || '/', '/') - 1)
 		WHERE a.run_id = ? AND (? = '' OR a.descriptor = ?)
-		ORDER BY a.descriptor, a.security_token`, runID, descriptor, descriptor)
+		ORDER BY a.descriptor, a.namespace, a.security_token`, runID, descriptor, descriptor)
 	if err != nil {
 		return fmt.Errorf("store: export query: %w", err)
 	}
-	defer rows.Close()
+
+	type rawRow struct {
+		ns, token, descriptor                      string
+		allow, deny, inheritedAllow, inheritedDeny int64
+		effectiveAllow, effectiveDeny              int64
+		displayName, kind, origin                  string
+	}
+	var raw []rawRow
+	for rows.Next() {
+		var item rawRow
+		var displayName, kind, origin sql.NullString
+		if err := rows.Scan(&item.ns, &item.token, &item.descriptor,
+			&item.allow, &item.deny,
+			&item.inheritedAllow, &item.inheritedDeny,
+			&item.effectiveAllow, &item.effectiveDeny,
+			&displayName, &kind, &origin); err != nil {
+			rows.Close()
+			return fmt.Errorf("store: export scan: %w", err)
+		}
+		item.displayName, item.kind, item.origin = displayName.String, kind.String, origin.String
+		raw = append(raw, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close() // release the single connection before resolving resources
 
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
@@ -171,7 +195,7 @@ func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, 
 	// Header
 	header := []string{
 		"subject_descriptor", "subject_display_name", "subject_kind", "subject_origin",
-		"project", "resource_token", "resource_type",
+		"namespace", "project", "resource_token", "resource_type",
 		"permission_name", "permission_display_name",
 		"state", "direct", "inherited", "via_group",
 	}
@@ -179,36 +203,30 @@ func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, 
 		return fmt.Errorf("store: export header: %w", err)
 	}
 
-	for rows.Next() {
-		var token, descriptor string
-		var allow, deny, inheritedAllow, inheritedDeny, effectiveAllow, effectiveDeny int64
-		var displayName, kind, origin, projectName sql.NullString
-
-		if err := rows.Scan(&token, &descriptor, &allow, &deny,
-			&inheritedAllow, &inheritedDeny,
-			&effectiveAllow, &effectiveDeny,
-			&displayName, &kind, &origin,
-			&projectName); err != nil {
-			return fmt.Errorf("store: export scan: %w", err)
+	for _, item := range raw {
+		resource, err := s.permissionResource(ctx, runID, item.token)
+		if err != nil {
+			// Unknown tokens (should not happen in a consistent run) are
+			// exported with whatever the token itself reveals.
+			resource = PermissionResource{Token: item.token, Namespace: item.ns, Type: resourceTypeFromToken(item.token)}
 		}
-
-		// Resolve resource type from token
-		resType := resourceTypeFromToken(token)
+		actions := permissionActionsForNamespace(byNamespace, item.ns)
 
 		for _, action := range actions {
-			state := stateForBit(effectiveAllow, effectiveDeny, action.Bit)
-			direct := allow&action.Bit != 0 || deny&action.Bit != 0
-			inherited := inheritedAllow&action.Bit != 0 || inheritedDeny&action.Bit != 0
+			state := stateForBit(item.effectiveAllow, item.effectiveDeny, action.Bit)
+			direct := item.allow&action.Bit != 0 || item.deny&action.Bit != 0
+			inherited := item.inheritedAllow&action.Bit != 0 || item.inheritedDeny&action.Bit != 0
 			viaGroup := state != PermissionNotSet && !direct && !inherited
 
 			row := []string{
-				descriptor,
-				displayName.String,
-				kind.String,
-				origin.String,
-				projectName.String,
-				token,
-				resType,
+				item.descriptor,
+				item.displayName,
+				item.kind,
+				item.origin,
+				item.ns,
+				resource.ProjectName,
+				item.token,
+				resource.Type,
 				action.Name,
 				action.DisplayName,
 				string(state),
@@ -221,7 +239,7 @@ func (s *Store) exportEffectivePermissionsCSV(ctx context.Context, runID int64, 
 			}
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 // ExportSubjectAssignmentsCSV writes a subject-centric CSV with one row per

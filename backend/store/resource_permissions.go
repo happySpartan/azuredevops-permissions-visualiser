@@ -27,11 +27,13 @@ func (s *Store) ResourcePermissionsByRun(ctx context.Context, runID int64, token
 	if err != nil {
 		return nil, err
 	}
+	ns := resource.Namespace
 
-	actions, err := permissionActionsByRun(ctx, s.db, runID)
+	byNamespace, err := namespaceActionsByRun(ctx, s.db, runID)
 	if err != nil {
 		return nil, err
 	}
+	actions := permissionActionsForNamespace(byNamespace, ns)
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT a.descriptor,
@@ -41,8 +43,8 @@ func (s *Store) ResourcePermissionsByRun(ctx context.Context, runID int64, token
 		       s.display_name, s.subject_kind, s.origin
 		FROM assignments a
 		JOIN subjects s ON s.run_id = a.run_id AND s.descriptor = a.descriptor
-		WHERE a.run_id = ? AND a.security_token = ?
-		ORDER BY a.descriptor`, runID, token)
+		WHERE a.run_id = ? AND a.namespace = ? AND a.security_token = ?
+		ORDER BY a.descriptor`, runID, ns, token)
 	if err != nil {
 		return nil, fmt.Errorf("store: resource permissions: %w", err)
 	}
