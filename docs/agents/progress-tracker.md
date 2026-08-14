@@ -10,6 +10,8 @@ live in `docs/adr/`.
 
 - [x] v1.0.0 — YAML pipeline + pipeline-folder permissions explorer (projects → root folder → nested folder → pipeline), subject→resources and resources→subjects navigation, effective-permission explanations with Direct/Inherited and User/Via-group provenance, scoped permission matrix, group membership explorer, per-view CSV export, live collection progress, ACL identity resolution, single embedded Go + React binary (Linux/Windows x64), ghcr.io container image.
   Tag `v1.0.0` at `511fdc8`; release URL: https://github.com/happySpartan/azuredevops-permissions-visualiser/releases/tag/v1.0.0
+- [x] v1.1.0 — Git repository/branch namespace and pipeline resource permissions (agent pools, service connections, variable groups) on top of v1.0.0; container hardened (Go 1.26.6, azure-cli 2.89.1 + tdnf update, trivy scan green).
+  Tag `v1.1.0` at `aeca561`; release URL: https://github.com/happySpartan/azuredevops-permissions-visualiser/releases/tag/v1.1.0
 
 ## Backlog
 
