@@ -20,18 +20,22 @@ func (staticTok) Token(context.Context) (string, error) { return "tok", nil }
 
 // fakeServer mimics the subset of the Azure DevOps API the collector uses.
 type fakeServer struct {
-	projectErr   bool // fail the projects phase
-	foldersErr   bool
-	defsErr      bool
-	reposErr     bool
-	branchesErr  bool
-	usersErr     bool
-	groupsErr    bool
-	membersErr   bool
-	aclErr       bool
-	gitACLErr    bool
-	aclOnlyGroup bool // ACL identity is omitted by the Graph groups listing
-	projectCalls int
+	projectErr       bool // fail the projects phase
+	foldersErr       bool
+	defsErr          bool
+	reposErr         bool
+	branchesErr      bool
+	poolsErr         bool
+	endpointsErr     bool
+	variableGroupsErr bool
+	usersErr         bool
+	groupsErr        bool
+	membersErr       bool
+	aclErr           bool
+	gitACLErr        bool
+	resourceACLErr   bool
+	aclOnlyGroup     bool // ACL identity is omitted by the Graph groups listing
+	projectCalls     int
 }
 
 func (f *fakeServer) handler() http.Handler {
@@ -92,6 +96,37 @@ func (f *fakeServer) handler() http.Handler {
 		}})
 	})
 
+	mux.HandleFunc("/org/_apis/distributedtask/pools", func(w http.ResponseWriter, r *http.Request) {
+		if f.poolsErr {
+			http.Error(w, `{"message":"pools denied"}`, http.StatusForbidden)
+			return
+		}
+		writeJSON(w, map[string]any{"value": []azdo.AgentPool{
+			{ID: 1, Name: "Azure Pipelines", IsHosted: true},
+			{ID: 7, Name: "Self-hosted"},
+		}})
+	})
+
+	mux.HandleFunc("/org/Alpha/_apis/serviceendpoint/endpoints", func(w http.ResponseWriter, r *http.Request) {
+		if f.endpointsErr {
+			http.Error(w, `{"message":"endpoints denied"}`, http.StatusForbidden)
+			return
+		}
+		writeJSON(w, map[string]any{"value": []azdo.ServiceEndpoint{
+			{ID: "EP-1", Name: "npm registry", Type: "npm"},
+		}})
+	})
+
+	mux.HandleFunc("/org/Alpha/_apis/distributedtask/variablegroups", func(w http.ResponseWriter, r *http.Request) {
+		if f.variableGroupsErr {
+			http.Error(w, `{"message":"variable groups denied"}`, http.StatusForbidden)
+			return
+		}
+		writeJSON(w, map[string]any{"value": []azdo.VariableGroup{
+			{ID: 3, Name: "shared-secrets"},
+		}})
+	})
+
 	mux.HandleFunc("/org/_apis/graph/users", func(w http.ResponseWriter, r *http.Request) {
 		if f.usersErr {
 			http.Error(w, `{"message":"users denied"}`, http.StatusForbidden)
@@ -136,6 +171,24 @@ func (f *fakeServer) handler() http.Handler {
 				"namespaceId": azdo.GitNamespaceID,
 				"name":        "Git Repositories",
 				"actions":     []azdo.ACE{{Bit: 1, Name: "Administer"}, {Bit: 2, Name: "GenericRead"}},
+			}}})
+		case azdo.BuildAdministrationNamespaceID:
+			writeJSON(w, map[string]any{"value": []map[string]any{{
+				"namespaceId": azdo.BuildAdministrationNamespaceID,
+				"name":        "BuildAdministration",
+				"actions":     []azdo.ACE{{Bit: 1, Name: "ViewBuildResources"}, {Bit: 4, Name: "UseBuildResources"}},
+			}}})
+		case azdo.ServiceEndpointsNamespaceID:
+			writeJSON(w, map[string]any{"value": []map[string]any{{
+				"namespaceId": azdo.ServiceEndpointsNamespaceID,
+				"name":        "ServiceEndpoints",
+				"actions":     []azdo.ACE{{Bit: 1, Name: "Use"}, {Bit: 16, Name: "ViewEndpoint"}},
+			}}})
+		case azdo.LibraryNamespaceID:
+			writeJSON(w, map[string]any{"value": []map[string]any{{
+				"namespaceId": azdo.LibraryNamespaceID,
+				"name":        "Library",
+				"actions":     []azdo.ACE{{Bit: 1, Name: "View"}, {Bit: 16, Name: "Use"}},
 			}}})
 		default:
 			http.Error(w, `{"message":"unknown namespace"}`, http.StatusNotFound)
@@ -200,6 +253,48 @@ func (f *fakeServer) handler() http.Handler {
 		writeJSON(w, map[string]any{"value": []azdo.ACL{{Token: token, Entries: entries}}})
 	})
 
+	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.BuildAdministrationNamespaceID, func(w http.ResponseWriter, r *http.Request) {
+		if f.resourceACLErr {
+			http.Error(w, `{"message":"resource acl denied"}`, http.StatusForbidden)
+			return
+		}
+		token := r.URL.Query().Get("token")
+		entries := map[string]azdo.ACLCE{}
+		switch token {
+		case "pools/1":
+			entries["u-1"] = azdo.ACLCE{Descriptor: "u-1", Allow: 5, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 5}}
+		}
+		writeJSON(w, map[string]any{"value": []azdo.ACL{{Token: token, Entries: entries}}})
+	})
+
+	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.ServiceEndpointsNamespaceID, func(w http.ResponseWriter, r *http.Request) {
+		if f.resourceACLErr {
+			http.Error(w, `{"message":"resource acl denied"}`, http.StatusForbidden)
+			return
+		}
+		token := r.URL.Query().Get("token")
+		entries := map[string]azdo.ACLCE{}
+		switch token {
+		case "PROJ-A/EP-1":
+			entries["g-1"] = azdo.ACLCE{Descriptor: "g-1", Allow: 17, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 17}}
+		}
+		writeJSON(w, map[string]any{"value": []azdo.ACL{{Token: token, Entries: entries}}})
+	})
+
+	mux.HandleFunc("/org/_apis/accesscontrollists/"+azdo.LibraryNamespaceID, func(w http.ResponseWriter, r *http.Request) {
+		if f.resourceACLErr {
+			http.Error(w, `{"message":"resource acl denied"}`, http.StatusForbidden)
+			return
+		}
+		token := r.URL.Query().Get("token")
+		entries := map[string]azdo.ACLCE{}
+		switch token {
+		case "PROJ-A/3":
+			entries["u-1"] = azdo.ACLCE{Descriptor: "u-1", Allow: 17, ExtendedInfo: azdo.ACLExtendedInformation{EffectiveAllow: 17}}
+		}
+		writeJSON(w, map[string]any{"value": []azdo.ACL{{Token: token, Entries: entries}}})
+	})
+
 	return mux
 }
 
@@ -241,7 +336,7 @@ func TestCollectReportsOrderedPhases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectWithProgress: %v", err)
 	}
-	want := []Phase{PhaseProjects, PhaseBuilds, PhaseRepositories, PhaseSubjects, PhasePermissions, PhaseCommitting, PhaseComplete}
+	want := []Phase{PhaseProjects, PhaseBuilds, PhaseRepositories, PhaseResources, PhaseSubjects, PhasePermissions, PhaseCommitting, PhaseComplete}
 	if len(phases) != len(want) {
 		t.Fatalf("phases = %v, want %v", phases, want)
 	}
@@ -302,12 +397,15 @@ func TestCollectSuccess(t *testing.T) {
 	if res.Counts.Repositories != 1 || res.Counts.Branches != 2 {
 		t.Fatalf("repository counts = %+v, want 1 repo and 2 branches", res.Counts)
 	}
+	if res.Counts.AgentPools != 2 || res.Counts.Endpoints != 1 || res.Counts.VariableGroups != 1 {
+		t.Fatalf("pipeline resource counts = %+v, want 2 pools, 1 endpoint, 1 vg", res.Counts)
+	}
 	if res.Counts.Subjects != 2 { // 1 user + 1 group
 		t.Fatalf("subject count = %d, want 2", res.Counts.Subjects)
 	}
-	// Build: 3 assignments. Git: 1 (REPO-1) + 1 (branch) = 2. Total 5.
-	if res.Counts.Assignments != 5 {
-		t.Fatalf("assignment count = %d, want 5", res.Counts.Assignments)
+	// Build: 3 assignments. Git: 2 (REPO-1 + branch). Pipeline resources: 3 (pools/1, EP-1, PROJ-A/3). Total 8.
+	if res.Counts.Assignments != 8 {
+		t.Fatalf("assignment count = %d, want 8", res.Counts.Assignments)
 	}
 
 	run, err := st.RunByID(context.Background(), res.RunID)

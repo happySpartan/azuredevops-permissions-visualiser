@@ -185,7 +185,7 @@ func apiRoutes(st *store.Store) http.Handler {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"projects": resources})
+		json.NewEncoder(w).Encode(resources)
 	})
 
 	mux.HandleFunc("/api/explorer/subjects", func(w http.ResponseWriter, r *http.Request) {

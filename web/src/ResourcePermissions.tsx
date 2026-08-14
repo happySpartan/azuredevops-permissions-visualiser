@@ -25,7 +25,7 @@ export default function ResourcePermissions({ resource, projectName, onBack }: P
   const [error, setError] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [explainTarget, setExplainTarget] = useState<{ subject: Subject; permission: PermissionResult } | null>(null)
-  const prominent = new Set(['ViewBuilds', 'QueueBuilds', 'ViewBuildDefinition', 'EditBuildDefinition', 'DeleteBuildDefinition', 'AdministerBuildPermissions', 'Administer', 'GenericRead', 'GenericContribute', 'ForcePush', 'ManagePermissions', 'PullRequestContribute', 'PullRequestBypassPolicy'])
+  const prominent = new Set(['ViewBuilds', 'QueueBuilds', 'ViewBuildDefinition', 'EditBuildDefinition', 'DeleteBuildDefinition', 'AdministerBuildPermissions', 'Administer', 'GenericRead', 'GenericContribute', 'ForcePush', 'ManagePermissions', 'PullRequestContribute', 'PullRequestBypassPolicy', 'ViewBuildResources', 'ManageBuildResources', 'UseBuildResources', 'AdministerBuildResourcePermissions', 'ViewEndpoint', 'Use', 'View', 'ViewSecrets'])
 
   useEffect(() => {
     const query = new URLSearchParams({ token: resource.token })

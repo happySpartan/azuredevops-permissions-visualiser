@@ -176,6 +176,11 @@ func (s *Store) permissionResource(ctx context.Context, runID int64, token strin
 	parts := strings.Split(token, "/")
 	first := parts[0]
 
+	// BuildAdministration namespace: agent pools use "pools/<poolId>" tokens.
+	if len(parts) == 2 && first == "pools" {
+		return s.agentPoolPermissionResource(ctx, runID, token, parts[1])
+	}
+
 	// Git namespace: repository GUIDs (bare repo tokens) and branch tokens
 	// ("<repoGUID>/refs/heads/<branch>"). Repo GUIDs never collide with
 	// project GUIDs; branch tokens always contain "/refs/".
@@ -219,12 +224,68 @@ func (s *Store) permissionResource(ctx context.Context, runID int64, token strin
 	}
 	pipelineRows.Close()
 
+	// ServiceEndpoints namespace: "<projectId>/<endpointId>".
+	if len(parts) == 2 {
+		var endpointName, endpointType string
+		err := s.db.QueryRowContext(ctx, `
+			SELECT name, endpoint_type FROM service_endpoints WHERE run_id=? AND project_id=? AND endpoint_id=?`,
+			runID, first, parts[1]).Scan(&endpointName, &endpointType)
+		if err == nil {
+			resource.Namespace = NamespaceServiceEndpoints
+			resource.Type = "serviceConnection"
+			resource.Name = endpointName
+			return resource, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return resource, fmt.Errorf("store: permission endpoint: %w", err)
+		}
+	}
+
+	// Library namespace: "<projectId>/<variableGroupId>".
+	if len(parts) == 2 {
+		var vgName string
+		err := s.db.QueryRowContext(ctx, `
+			SELECT name FROM variable_groups WHERE run_id=? AND project_id=? AND variable_group_id=?`,
+			runID, first, parts[1]).Scan(&vgName)
+		if err == nil {
+			resource.Namespace = NamespaceLibrary
+			resource.Type = "variableGroup"
+			resource.Name = vgName
+			return resource, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return resource, fmt.Errorf("store: permission variable group: %w", err)
+		}
+	}
+
 	if len(parts) > 1 {
 		resource.Type = "folder"
 		resource.Path = "/" + strings.Join(parts[1:], "/")
 		resource.Name = resource.Path
 	}
 	return resource, nil
+}
+
+// agentPoolPermissionResource resolves a BuildAdministration-namespace token
+// ("pools/<poolId>") to an agent pool.
+func (s *Store) agentPoolPermissionResource(ctx context.Context, runID int64, token, poolID string) (PermissionResource, error) {
+	var name string
+	var hosted int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT name, is_hosted FROM agent_pools WHERE run_id=? AND pool_id=?`, runID, poolID).
+		Scan(&name, &hosted)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PermissionResource{}, ErrNotFound
+	}
+	if err != nil {
+		return PermissionResource{}, fmt.Errorf("store: permission agent pool: %w", err)
+	}
+	return PermissionResource{
+		Token:     token,
+		Namespace: NamespaceBuildAdministration,
+		Type:      "agentPool",
+		Name:      name,
+	}, nil
 }
 
 // gitPermissionResource resolves a Git-namespace token to a repository or a

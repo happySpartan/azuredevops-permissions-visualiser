@@ -296,6 +296,9 @@ func (s *Store) ExportSubjectAssignmentsCSV(ctx context.Context, runID int64, w 
 
 func resourceTypeFromToken(token string) string {
 	parts := strings.Split(token, "/")
+	if len(parts) == 2 && parts[0] == "pools" {
+		return "agentPool"
+	}
 	switch len(parts) {
 	case 1:
 		return "project"

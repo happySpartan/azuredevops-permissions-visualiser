@@ -160,6 +160,9 @@ tbody tr:hover { background: #fafcff; }
 .resource-icon.pipeline { background: #e9f3fc; color: #0878d1; }
 .resource-icon.repository { background: #e8f5e9; color: #2e7d32; }
 .resource-icon.branch { background: #f3e5f5; color: #7b1fa2; }
+.resource-icon.agent-pool { background: #e0f2f1; color: #00695c; }
+.resource-icon.endpoint { background: #fce4ec; color: #ad1457; }
+.resource-icon.variable-group { background: #efebe9; color: #4e342e; }
 .resource-row.repository-group { padding: 0; flex-direction: column; gap: 0; grid-column: 1 / -1; background: #fff; }
 .resource-row.repository-group > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 14px 18px; cursor: pointer; }
 .resource-row.repository-group > summary::-webkit-details-marker { display: none; }

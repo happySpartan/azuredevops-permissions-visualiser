@@ -67,6 +67,70 @@ func (t *Tx) GitTokensByRunTx(ctx context.Context) ([]string, error) {
 	return gitTokensQuery(ctx, t.tx, t.runID)
 }
 
+// PipelineResourceTokensByRunTx returns the distinct security tokens for the
+// pipeline resource namespaces (BuildAdministration agent pools, ServiceEndpoints,
+// and Library variable groups), keyed by namespace.
+func (t *Tx) PipelineResourceTokensByRunTx(ctx context.Context) (map[string][]string, error) {
+	tokens := map[string][]string{}
+	appendToken := func(ns, token string) {
+		tokens[ns] = append(tokens[ns], token)
+	}
+
+	rows, err := t.tx.QueryContext(ctx, `SELECT pool_id FROM agent_pools WHERE run_id=? ORDER BY pool_id`, t.runID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		appendToken(NamespaceBuildAdministration, "pools/"+fmt.Sprint(id))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err = t.tx.QueryContext(ctx, `SELECT project_id, endpoint_id FROM service_endpoints WHERE run_id=? ORDER BY project_id, endpoint_id`, t.runID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var projectID, endpointID string
+		if err := rows.Scan(&projectID, &endpointID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		appendToken(NamespaceServiceEndpoints, projectID+"/"+endpointID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err = t.tx.QueryContext(ctx, `SELECT project_id, variable_group_id FROM variable_groups WHERE run_id=? ORDER BY project_id, variable_group_id`, t.runID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var projectID string
+		var id int
+		if err := rows.Scan(&projectID, &id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		appendToken(NamespaceLibrary, projectID+"/"+fmt.Sprint(id))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tokens, nil
+}
+
 func gitTokensQuery(ctx context.Context, q queryer, runID int64) ([]string, error) {
 	tok := map[string]bool{}
 	rows, err := q.QueryContext(ctx, `SELECT repository_id FROM repositories WHERE run_id=?`, runID)
@@ -180,6 +244,15 @@ const NamespaceBuild = "33344d9c-fc72-4d6f-aba5-fa317101a7e9"
 
 // NamespaceGit is the Git Repositories security namespace GUID, matching azdo.
 const NamespaceGit = "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87"
+
+// NamespaceBuildAdministration is the agent-pool security namespace GUID.
+const NamespaceBuildAdministration = "302acaca-b667-436d-a946-87133492041c"
+
+// NamespaceServiceEndpoints is the service-connection security namespace GUID.
+const NamespaceServiceEndpoints = "49b48001-ca20-4adc-8111-5b60c903a50c"
+
+// NamespaceLibrary is the variable-group security namespace GUID.
+const NamespaceLibrary = "b7e84409-6553-448a-bbb2-af228e07cbeb"
 
 // BuildToken assembles a Build-namespace security token for a project, optional
 // folder path, and optional definition id. Mirrors azdo.BuildSecurityToken but

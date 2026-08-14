@@ -47,6 +47,7 @@ const (
 	PhaseProjects       Phase = "projects"
 	PhaseBuilds         Phase = "builds"
 	PhaseRepositories   Phase = "repositories"
+	PhaseResources      Phase = "pipeline resources"
 	PhaseSubjects       Phase = "subjects"
 	PhasePermissions    Phase = "permissions"
 	PhaseCommitting     Phase = "committing"
@@ -102,6 +103,12 @@ func (c *Collector) CollectWithProgress(ctx context.Context, org string, report 
 	}
 	notify(PhaseRepositories, "Discovering Git repositories and branches")
 	if err := c.collectRepositories(ctx, tx); err != nil {
+		tx.Abort()
+		_ = c.fail(ctx, runID, store.StatusFailed, err)
+		return nil, err
+	}
+	notify(PhaseResources, "Discovering agent pools, service connections, and variable groups")
+	if err := c.collectPipelineResources(ctx, tx); err != nil {
 		tx.Abort()
 		_ = c.fail(ctx, runID, store.StatusFailed, err)
 		return nil, err
@@ -260,6 +267,48 @@ func (c *Collector) collectRepositories(ctx context.Context, tx *store.Tx) error
 	return nil
 }
 
+// collectPipelineResources discovers agent pools (org-level), service connections,
+// and variable groups per project.
+func (c *Collector) collectPipelineResources(ctx context.Context, tx *store.Tx) error {
+	// Agent pools are org-level, collected once.
+	pools, err := c.client.AgentPools(ctx)
+	if err != nil {
+		return fmt.Errorf("collect: agent pools: %w", err)
+	}
+	for _, p := range pools {
+		if err := tx.AddAgentPool(ctx, p.ID, p.Name, p.IsHosted); err != nil {
+			return err
+		}
+	}
+
+	// Service connections and variable groups are per-project.
+	projects, err := tx.ProjectsByRunTx(ctx)
+	if err != nil {
+		return fmt.Errorf("collect: projects lookup: %w", err)
+	}
+	for _, p := range projects {
+		endpoints, err := c.client.ServiceEndpoints(ctx, p.Name)
+		if err != nil {
+			return fmt.Errorf("collect: endpoints for %s: %w", p.Name, err)
+		}
+		for _, e := range endpoints {
+			if err := tx.AddServiceEndpoint(ctx, p.OrgID, e.ID, e.Name, e.Type); err != nil {
+				return err
+			}
+		}
+		vgs, err := c.client.VariableGroups(ctx, p.Name)
+		if err != nil {
+			return fmt.Errorf("collect: variable groups for %s: %w", p.Name, err)
+		}
+		for _, vg := range vgs {
+			if err := tx.AddVariableGroup(ctx, p.OrgID, vg.ID, vg.Name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // collectPermissions queries the Build and Git security namespaces for every
 // secured resource recorded in the run.
 func (c *Collector) collectPermissions(ctx context.Context, tx *store.Tx) error {
@@ -299,6 +348,37 @@ func (c *Collector) collectPermissions(ctx context.Context, tx *store.Tx) error 
 			}
 		}
 		if err := c.collectNamespaceACLs(ctx, tx, azdo.GitNamespaceID, gitTokens); err != nil {
+			return err
+		}
+	}
+
+	// Pipeline resource namespaces: agent pools, service connections, variable groups.
+	resTokens, err := tx.PipelineResourceTokensByRunTx(ctx)
+	if err != nil {
+		return fmt.Errorf("collect: pipeline resource tokens: %w", err)
+	}
+	for _, ns := range []struct {
+		id  string
+		key string
+	}{
+		{azdo.BuildAdministrationNamespaceID, store.NamespaceBuildAdministration},
+		{azdo.ServiceEndpointsNamespaceID, store.NamespaceServiceEndpoints},
+		{azdo.LibraryNamespaceID, store.NamespaceLibrary},
+	} {
+		tokens := resTokens[ns.key]
+		if len(tokens) == 0 {
+			continue
+		}
+		resourceNS, err := c.client.SecurityNamespace(ctx, ns.id)
+		if err != nil {
+			return fmt.Errorf("collect: %s namespace: %w", ns.key, err)
+		}
+		for _, action := range resourceNS.Actions {
+			if err := tx.AddPermissionAction(ctx, ns.id, action.Bit, action.Name, action.DisplayName); err != nil {
+				return err
+			}
+		}
+		if err := c.collectNamespaceACLs(ctx, tx, ns.id, tokens); err != nil {
 			return err
 		}
 	}

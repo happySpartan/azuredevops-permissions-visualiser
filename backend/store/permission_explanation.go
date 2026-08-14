@@ -128,13 +128,16 @@ func stateForBit(allow, deny, bit int64) PermissionState {
 
 // ancestorTokens returns the meaningful inheritance ancestors of a security
 // token. For Build-namespace tokens (project/folder/pipeline) every path
-// prefix is an ancestor resource. Git branch tokens (\"<repoGUID>/refs/...\")
+// prefix is an ancestor resource. Git branch tokens ("<repoGUID>/refs/...")
 // only inherit from their repository, so the intermediate /refs/ segments are
-// skipped.
+// skipped. Agent pool tokens ("pools/<id>") have no parent resource.
 func ancestorTokens(token string) []string {
 	parts := strings.Split(token, "/")
 	if len(parts) > 1 && parts[1] == "refs" {
 		return []string{parts[0], token}
+	}
+	if len(parts) > 1 && parts[0] == "pools" {
+		return []string{token}
 	}
 	out := make([]string, 0, len(parts))
 	for i := range parts {

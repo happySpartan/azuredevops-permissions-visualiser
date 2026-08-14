@@ -44,7 +44,7 @@ export default function SubjectPermissions({ subject, onBack }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [explainTarget, setExplainTarget] = useState<{ resource: PermissionResource; permission: PermissionResult } | null>(null)
-  const prominent = new Set(['ViewBuilds', 'QueueBuilds', 'ViewBuildDefinition', 'EditBuildDefinition', 'DeleteBuildDefinition', 'AdministerBuildPermissions', 'Administer', 'GenericRead', 'GenericContribute', 'ForcePush', 'ManagePermissions', 'PullRequestContribute', 'PullRequestBypassPolicy'])
+  const prominent = new Set(['ViewBuilds', 'QueueBuilds', 'ViewBuildDefinition', 'EditBuildDefinition', 'DeleteBuildDefinition', 'AdministerBuildPermissions', 'Administer', 'GenericRead', 'GenericContribute', 'ForcePush', 'ManagePermissions', 'PullRequestContribute', 'PullRequestBypassPolicy', 'ViewBuildResources', 'ManageBuildResources', 'UseBuildResources', 'AdministerBuildResourcePermissions', 'ViewEndpoint', 'Use', 'View', 'ViewSecrets'])
 
   useEffect(() => {
     const query = new URLSearchParams({ descriptor: subject.descriptor })

@@ -93,6 +93,46 @@ func (t *Tx) AddBranch(ctx context.Context, repositoryID, name string) error {
 	return t.countIfChanged(res, &t.counts.Branches)
 }
 
+// AddAgentPool records an organization-level agent pool (BuildAdministration).
+func (t *Tx) AddAgentPool(ctx context.Context, poolID int, name string, isHosted bool) error {
+	hosted := 0
+	if isHosted {
+		hosted = 1
+	}
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO agent_pools (run_id, pool_id, name, is_hosted)
+		VALUES (?, ?, ?, ?)`,
+		t.runID, poolID, name, hosted)
+	if err != nil {
+		return fmt.Errorf("store: add agent pool: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.AgentPools)
+}
+
+// AddServiceEndpoint records a service connection for a project (ServiceEndpoints).
+func (t *Tx) AddServiceEndpoint(ctx context.Context, projectID, endpointID, name, endpointType string) error {
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO service_endpoints (run_id, project_id, endpoint_id, name, endpoint_type)
+		VALUES (?, ?, ?, ?, ?)`,
+		t.runID, projectID, endpointID, name, endpointType)
+	if err != nil {
+		return fmt.Errorf("store: add service endpoint: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.Endpoints)
+}
+
+// AddVariableGroup records a library variable group for a project (Library).
+func (t *Tx) AddVariableGroup(ctx context.Context, projectID string, variableGroupID int, name string) error {
+	res, err := t.tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO variable_groups (run_id, project_id, variable_group_id, name)
+		VALUES (?, ?, ?, ?)`,
+		t.runID, projectID, variableGroupID, name)
+	if err != nil {
+		return fmt.Errorf("store: add variable group: %w", err)
+	}
+	return t.countIfChanged(res, &t.counts.VariableGroups)
+}
+
 // AddSubject records a user or group.
 func (t *Tx) AddSubject(ctx context.Context, descriptor, displayName, origin, subjectKind string) error {
 	res, err := t.tx.ExecContext(ctx, `

@@ -9,11 +9,13 @@ import (
 
 // ResourceProject is a project and its collected resources.
 type ResourceProject struct {
-	ID           string               `json:"id"`
-	Name         string               `json:"name"`
-	Folders      []ResourceFolder     `json:"folders"`
-	Pipelines    []ResourcePipeline   `json:"pipelines"`
-	Repositories []ResourceRepository `json:"repositories"`
+	ID             string               `json:"id"`
+	Name           string               `json:"name"`
+	Folders        []ResourceFolder     `json:"folders"`
+	Pipelines      []ResourcePipeline   `json:"pipelines"`
+	Repositories   []ResourceRepository `json:"repositories"`
+	Endpoints      []ResourceEndpoint   `json:"endpoints"`
+	VariableGroups []ResourceVarGroup   `json:"variableGroups"`
 }
 
 // ResourceFolder is a collected pipeline folder.
@@ -42,8 +44,37 @@ type ResourceBranch struct {
 	Name string `json:"name"` // full ref, e.g. refs/heads/main
 }
 
+// ResourceEndpoint is a collected service connection (ServiceEndpoints).
+type ResourceEndpoint struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// ResourceVarGroup is a collected library variable group (Library).
+type ResourceVarGroup struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// ResourceAgentPool is a collected organization-level agent pool
+// (BuildAdministration). It is returned at the top level, not per project.
+type ResourceAgentPool struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	IsHosted bool   `json:"isHosted"`
+}
+
+// ResourceHierarchy is the top-level response from the resources explorer.
+type ResourceHierarchy struct {
+	AgentPools []ResourceAgentPool `json:"agentPools"`
+	Projects   []ResourceProject   `json:"projects"`
+}
+
 // ResourcesByRun returns the collected resource hierarchy for an analysis run.
-func (s *Store) ResourcesByRun(ctx context.Context, runID int64) ([]ResourceProject, error) {
+// Agent pools are organization-level; everything else is per project.
+func (s *Store) ResourcesByRun(ctx context.Context, runID int64) (*ResourceHierarchy, error) {
+	hierarchy := &ResourceHierarchy{AgentPools: []ResourceAgentPool{}}
 	projects, err := s.ProjectsByRun(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -54,12 +85,33 @@ func (s *Store) ResourcesByRun(ctx context.Context, runID int64) ([]ResourceProj
 	for _, project := range projects {
 		byID[project.OrgID] = len(out)
 		out = append(out, ResourceProject{
-			ID:           project.OrgID,
-			Name:         project.Name,
-			Folders:      []ResourceFolder{},
-			Pipelines:    []ResourcePipeline{},
-			Repositories: []ResourceRepository{},
+			ID:             project.OrgID,
+			Name:           project.Name,
+			Folders:        []ResourceFolder{},
+			Pipelines:      []ResourcePipeline{},
+			Repositories:   []ResourceRepository{},
+			Endpoints:      []ResourceEndpoint{},
+			VariableGroups: []ResourceVarGroup{},
 		})
+	}
+
+	poolRows, err := s.db.QueryContext(ctx,
+		`SELECT pool_id, name, is_hosted FROM agent_pools WHERE run_id=? ORDER BY name`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("store: resources agent pools: %w", err)
+	}
+	defer poolRows.Close()
+	for poolRows.Next() {
+		var pool ResourceAgentPool
+		var hosted int
+		if err := poolRows.Scan(&pool.ID, &pool.Name, &hosted); err != nil {
+			return nil, err
+		}
+		pool.IsHosted = hosted != 0
+		hierarchy.AgentPools = append(hierarchy.AgentPools, pool)
+	}
+	if err := poolRows.Err(); err != nil {
+		return nil, err
 	}
 
 	folderRows, err := s.db.QueryContext(ctx,
@@ -147,7 +199,53 @@ func (s *Store) ResourcesByRun(ctx context.Context, runID int64) ([]ResourceProj
 			}
 		}
 	}
-	return out, branchRows.Err()
+	if err := branchRows.Err(); err != nil {
+		return nil, err
+	}
+
+	endpointRows, err := s.db.QueryContext(ctx, `
+		SELECT project_id, endpoint_id, name, endpoint_type
+		FROM service_endpoints WHERE run_id=? ORDER BY name`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("store: resources endpoints: %w", err)
+	}
+	defer endpointRows.Close()
+	for endpointRows.Next() {
+		var projectID, endpointID, name, endpointType string
+		if err := endpointRows.Scan(&projectID, &endpointID, &name, &endpointType); err != nil {
+			return nil, err
+		}
+		if index, ok := byID[projectID]; ok {
+			out[index].Endpoints = append(out[index].Endpoints, ResourceEndpoint{ID: endpointID, Name: name, Type: endpointType})
+		}
+	}
+	if err := endpointRows.Err(); err != nil {
+		return nil, err
+	}
+
+	vgRows, err := s.db.QueryContext(ctx, `
+		SELECT project_id, variable_group_id, name
+		FROM variable_groups WHERE run_id=? ORDER BY name`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("store: resources variable groups: %w", err)
+	}
+	defer vgRows.Close()
+	for vgRows.Next() {
+		var projectID, name string
+		var id int
+		if err := vgRows.Scan(&projectID, &id, &name); err != nil {
+			return nil, err
+		}
+		if index, ok := byID[projectID]; ok {
+			out[index].VariableGroups = append(out[index].VariableGroups, ResourceVarGroup{ID: id, Name: name})
+		}
+	}
+	if err := vgRows.Err(); err != nil {
+		return nil, err
+	}
+
+	hierarchy.Projects = out
+	return hierarchy, nil
 }
 
 // Subject is a user or group collected for an analysis run.

@@ -23,15 +23,18 @@ func TestResourcesByRunBuildsProjectHierarchy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResourcesByRun: %v", err)
 	}
-	if len(resources) != 2 || resources[0].Name != "Alpha" || resources[1].Name != "Beta" {
-		t.Fatalf("unexpected projects: %+v", resources)
+	if len(resources.Projects) != 2 || resources.Projects[0].Name != "Alpha" || resources.Projects[1].Name != "Beta" {
+		t.Fatalf("unexpected projects: %+v", resources.Projects)
 	}
-	alpha := resources[0]
+	alpha := resources.Projects[0]
 	if len(alpha.Folders) != 1 || alpha.Folders[0].Path != "/Shared" {
 		t.Fatalf("unexpected folders: %+v", alpha.Folders)
 	}
 	if len(alpha.Pipelines) != 2 || alpha.Pipelines[0].Name != "Build" || alpha.Pipelines[1].Name != "Deploy" {
 		t.Fatalf("unexpected pipelines: %+v", alpha.Pipelines)
+	}
+	if len(resources.AgentPools) != 0 {
+		t.Fatalf("unexpected agent pools: %+v", resources.AgentPools)
 	}
 }
 

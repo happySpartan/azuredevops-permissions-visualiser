@@ -15,6 +15,9 @@ interface Run {
   PipelineCount: number
   RepositoryCount: number
   BranchCount: number
+  AgentPoolCount: number
+  EndpointCount: number
+  VariableGroupCount: number
   SubjectCount: number
   AssignmentCount: number
 }
@@ -58,12 +61,36 @@ interface Repository {
   branches: Branch[]
 }
 
+interface Endpoint {
+  id: string
+  name: string
+  type: string
+}
+
+interface VariableGroup {
+  id: number
+  name: string
+}
+
+interface AgentPool {
+  id: number
+  name: string
+  isHosted: boolean
+}
+
 interface Project {
   id: string
   name: string
   folders: { path: string }[]
   pipelines: Pipeline[]
   repositories: Repository[]
+  endpoints: Endpoint[]
+  variableGroups: VariableGroup[]
+}
+
+interface ResourceHierarchy {
+  agentPools: AgentPool[]
+  projects: Project[]
 }
 
 type View = 'overview' | 'subjects' | 'resources' | 'matrix'
@@ -225,6 +252,9 @@ function Overview({ run, busy, collectionStatus, onCollect, onDelete, onExplore 
     ['Pipelines', run.PipelineCount],
     ['Repositories', run.RepositoryCount],
     ['Branches', run.BranchCount],
+    ['Agent pools', run.AgentPoolCount],
+    ['Service connections', run.EndpointCount],
+    ['Variable groups', run.VariableGroupCount],
     ['Subjects', run.SubjectCount],
     ['Assignments', run.AssignmentCount],
   ]
@@ -313,10 +343,10 @@ interface SelectedResource {
 }
 
 function Resources() {
-  const [projects, setProjects] = useState<Project[]>([])
+  const [hierarchy, setHierarchy] = useState<ResourceHierarchy>({ agentPools: [], projects: [] })
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<SelectedResource | null>(null)
-  useEffect(() => { api<{ projects: Project[] }>('/api/explorer/resources').then((data) => setProjects(data.projects)).catch((caught) => setError(String(caught))) }, [])
+  useEffect(() => { api<ResourceHierarchy>('/api/explorer/resources').then(setHierarchy).catch((caught) => setError(String(caught))) }, [])
 
   if (selected) {
     return <ResourcePermissions resource={selected} projectName={selected.projectName} onBack={() => setSelected(null)} />
@@ -324,10 +354,21 @@ function Resources() {
 
   return (
     <section>
-      <div className="page-heading"><div><p className="eyebrow">Access explorer</p><h1>Resources</h1><p>Browse the collected project, pipeline-folder, YAML pipeline, and Git repository hierarchy.</p></div></div>
+      <div className="page-heading"><div><p className="eyebrow">Access explorer</p><h1>Resources</h1><p>Browse the collected project, pipeline-folder, YAML pipeline, Git repository, and pipeline resource hierarchy.</p></div></div>
       {error && <p className="inline-error">{error}</p>}
       <div className="resource-list">
-        {projects.map((project) => <details className="panel project-card" open key={project.id}><summary><div><strong>{project.name}</strong><span>{project.folders.length} folders · {project.pipelines.length} pipelines · {project.repositories.length} repositories</span></div><span className="project-badge">Project</span></summary>
+        {hierarchy.agentPools.length > 0 && <details className="panel project-card" open>
+          <summary><div><strong>Agent pools</strong><span>{hierarchy.agentPools.length} organization-level pools</span></div><span className="project-badge">Organization</span></summary>
+          <div className="resource-grid">
+            {hierarchy.agentPools.map((pool) =>
+              <div className="resource-row selectable" key={`pool-${pool.id}`} role="button" tabIndex={0}
+                onClick={() => setSelected({ token: `pools/${pool.id}`, name: pool.name, type: 'agentPool', path: '', projectName: '' })}
+                onKeyDown={(event) => { if (event.key === 'Enter') setSelected({ token: `pools/${pool.id}`, name: pool.name, type: 'agentPool', path: '', projectName: '' }) }}>
+                <span className="resource-icon agent-pool">◈</span><div><strong>{pool.name}</strong><span>Agent pool · {pool.isHosted ? 'Hosted' : 'Self-hosted'}</span></div>
+              </div>)}
+          </div>
+        </details>}
+        {hierarchy.projects.map((project) => <details className="panel project-card" open key={project.id}><summary><div><strong>{project.name}</strong><span>{project.folders.length} folders · {project.pipelines.length} pipelines · {project.repositories.length} repositories · {project.endpoints.length} connections · {project.variableGroups.length} variable groups</span></div><span className="project-badge">Project</span></summary>
           <div className="resource-grid">
             {project.folders.map((folder) =>
               <div className="resource-row selectable" key={`folder-${folder.path}`} role="button" tabIndex={0}
@@ -364,7 +405,19 @@ function Resources() {
                   })}
                 </div>
               </details>))}
-            {project.folders.length + project.pipelines.length + project.repositories.length === 0 && <p className="table-empty">No resources were collected for this project.</p>}
+            {project.endpoints.map((endpoint) =>
+              <div className="resource-row selectable" key={`endpoint-${endpoint.id}`} role="button" tabIndex={0}
+                onClick={() => setSelected({ token: `${project.id}/${endpoint.id}`, name: endpoint.name, type: 'serviceConnection', path: '', projectName: project.name })}
+                onKeyDown={(event) => { if (event.key === 'Enter') setSelected({ token: `${project.id}/${endpoint.id}`, name: endpoint.name, type: 'serviceConnection', path: '', projectName: project.name }) }}>
+                <span className="resource-icon endpoint">⛁</span><div><strong>{endpoint.name}</strong><span>Service connection · {endpoint.type || 'unknown'}</span></div>
+              </div>)}
+            {project.variableGroups.map((vg) =>
+              <div className="resource-row selectable" key={`vg-${vg.id}`} role="button" tabIndex={0}
+                onClick={() => setSelected({ token: `${project.id}/${vg.id}`, name: vg.name, type: 'variableGroup', path: '', projectName: project.name })}
+                onKeyDown={(event) => { if (event.key === 'Enter') setSelected({ token: `${project.id}/${vg.id}`, name: vg.name, type: 'variableGroup', path: '', projectName: project.name }) }}>
+                <span className="resource-icon variable-group">≡</span><div><strong>{vg.name}</strong><span>Variable group</span></div>
+              </div>)}
+            {project.folders.length + project.pipelines.length + project.repositories.length + project.endpoints.length + project.variableGroups.length === 0 && <p className="table-empty">No resources were collected for this project.</p>}
           </div>
         </details>)}
       </div>

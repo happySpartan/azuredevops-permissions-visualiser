@@ -52,6 +52,9 @@ type Run struct {
 	PipelineCount    int
 	RepositoryCount  int
 	BranchCount      int
+	AgentPoolCount   int
+	EndpointCount    int
+	VariableGroupCount int
 	SubjectCount     int
 	AssignmentCount  int
 }
@@ -183,6 +186,34 @@ CREATE TABLE IF NOT EXISTS branches (
     UNIQUE(run_id, repository_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS agent_pools (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    pool_id     INTEGER NOT NULL,
+    name        TEXT    NOT NULL,
+    is_hosted   INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(run_id, pool_id)
+);
+
+CREATE TABLE IF NOT EXISTS service_endpoints (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    project_id  TEXT    NOT NULL,
+    endpoint_id TEXT    NOT NULL,
+    name        TEXT    NOT NULL,
+    endpoint_type TEXT NOT NULL DEFAULT '',
+    UNIQUE(run_id, project_id, endpoint_id)
+);
+
+CREATE TABLE IF NOT EXISTS variable_groups (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id            INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    project_id        TEXT    NOT NULL,
+    variable_group_id INTEGER NOT NULL,
+    name              TEXT    NOT NULL,
+    UNIQUE(run_id, project_id, variable_group_id)
+);
+
 CREATE TABLE IF NOT EXISTS subjects (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id      INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -248,6 +279,9 @@ CREATE INDEX IF NOT EXISTS idx_permission_actions_run ON permission_actions(run_
 		{"permission_actions", "namespace", "TEXT NOT NULL DEFAULT 'Build'"},
 		{"runs", "repository_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"runs", "branch_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "agent_pool_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "endpoint_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "variable_group_count", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, column := range columns {
 		var count int
@@ -298,6 +332,7 @@ func (s *Store) RunByID(ctx context.Context, id int64) (*Run, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, org, status, started_at, completed_at, error,
 		       project_count, folder_count, pipeline_count, repository_count, branch_count,
+		       agent_pool_count, endpoint_count, variable_group_count,
 		       subject_count, assignment_count
 		FROM runs WHERE id = ?`, id)
 	r := &Run{}
@@ -305,6 +340,7 @@ func (s *Store) RunByID(ctx context.Context, id int64) (*Run, error) {
 	var completed, errStr sql.NullString
 	if err := row.Scan(&r.ID, &r.Org, &r.Status, &started, &completed, &errStr,
 		&r.ProjectCount, &r.FolderCount, &r.PipelineCount, &r.RepositoryCount, &r.BranchCount,
+		&r.AgentPoolCount, &r.EndpointCount, &r.VariableGroupCount,
 		&r.SubjectCount, &r.AssignmentCount); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -338,9 +374,11 @@ func (s *Store) CompleteRun(ctx context.Context, runID int64, counts RunCounts) 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE runs SET status=?, completed_at=?, project_count=?, folder_count=?,
 			pipeline_count=?, repository_count=?, branch_count=?,
+			agent_pool_count=?, endpoint_count=?, variable_group_count=?,
 			subject_count=?, assignment_count=? WHERE id=?`,
 		StatusComplete, time.Now().UTC().Format(time.RFC3339Nano),
 		counts.Projects, counts.Folders, counts.Pipelines, counts.Repositories, counts.Branches,
+		counts.AgentPools, counts.Endpoints, counts.VariableGroups,
 		counts.Subjects, counts.Assignments,
 		runID); err != nil {
 		return err
@@ -384,6 +422,15 @@ func (s *Store) FailRun(ctx context.Context, runID int64, status Status, msg str
 	if _, err := tx.ExecContext(ctx, `DELETE FROM branches WHERE run_id=?`, runID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_pools WHERE run_id=?`, runID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM service_endpoints WHERE run_id=?`, runID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM variable_groups WHERE run_id=?`, runID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM subjects WHERE run_id=?`, runID); err != nil {
 		return err
 	}
@@ -410,11 +457,14 @@ func (s *Store) DeleteAll(ctx context.Context) error {
 
 // RunCounts summarises a completed collection.
 type RunCounts struct {
-	Projects     int
-	Folders      int
-	Pipelines    int
-	Repositories int
-	Branches     int
-	Subjects     int
-	Assignments  int
+	Projects       int
+	Folders        int
+	Pipelines      int
+	Repositories   int
+	Branches       int
+	AgentPools     int
+	Endpoints      int
+	VariableGroups int
+	Subjects       int
+	Assignments    int
 }

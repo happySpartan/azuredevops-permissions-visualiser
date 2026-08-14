@@ -78,6 +78,15 @@ func TestRecordedSnapshotCollectionCommitsQueryableAnalysis(t *testing.T) {
 	mux.HandleFunc("/org/Alpha/_apis/git/repositories", func(w http.ResponseWriter, r *http.Request) {
 		serve(json.RawMessage(`{"value":[]}`))(w, r)
 	})
+	mux.HandleFunc("/org/_apis/distributedtask/pools", func(w http.ResponseWriter, r *http.Request) {
+		serve(json.RawMessage(`{"value":[]}`))(w, r)
+	})
+	mux.HandleFunc("/org/Alpha/_apis/serviceendpoint/endpoints", func(w http.ResponseWriter, r *http.Request) {
+		serve(json.RawMessage(`{"value":[]}`))(w, r)
+	})
+	mux.HandleFunc("/org/Alpha/_apis/distributedtask/variablegroups", func(w http.ResponseWriter, r *http.Request) {
+		serve(json.RawMessage(`{"value":[]}`))(w, r)
+	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -103,7 +112,7 @@ func TestRecordedSnapshotCollectionCommitsQueryableAnalysis(t *testing.T) {
 		t.Fatalf("committed run = %+v, err = %v", run, err)
 	}
 	resources, err := st.ResourcesByRun(context.Background(), result.RunID)
-	if err != nil || len(resources) != 1 || len(resources[0].Pipelines) != 2 || resources[0].Pipelines[1].Name != "Deploy" {
+	if err != nil || len(resources.Projects) != 1 || len(resources.Projects[0].Pipelines) != 2 || resources.Projects[0].Pipelines[1].Name != "Deploy" {
 		t.Fatalf("resources = %+v, err = %v", resources, err)
 	}
 	subjects, err := st.SubjectsByRun(context.Background(), result.RunID, store.SubjectQuery{Limit: 10})
