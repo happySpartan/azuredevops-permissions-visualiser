@@ -24,7 +24,7 @@ live in `docs/adr/`.
 
 ### Platform & engineering
 
-- [ ] CI container job: resolve trivy HIGH/CRITICAL findings in the azure-cli base image (pre-existing CVEs in Python packages, e.g. cryptography). Options: pin a newer `mcr.microsoft.com/azure-cli` image, split the scan to a pinned-tooling stage, or document an accepted-risk exemption.
+- [x] CI container job: resolve trivy HIGH/CRITICAL findings in the azure-cli base image. Go 1.25.12→1.25.13 clears stdlib findings; runtime image pinned to `azure-cli:2.89.1` + `tdnf update` clears OS-package findings (libarchive/libssh2/python3); remaining bundled-pip-wheel findings (cryptography/msgpack/setuptools, frozen in azure-cli's venv, no fixed wheel shipped upstream) are documented in `.trivyignore.yaml` as accepted-risk/tracked-upstream.
 - [ ] Cosmetic: commit `511fdc8` message has a shell-eaten backtick phrase. Not worth rewriting pushed history; leave as-is unless history is ever rewritten.
 
 ## Notes

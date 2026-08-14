@@ -1,6 +1,6 @@
 module github.com/happySpartan/azuredevops-permissions-visualiser/backend
 
-go 1.25.12
+go 1.25.13
 
 require modernc.org/sqlite v1.56.0
 

@@ -1,0 +1,53 @@
+# Trivy vulnerability ignore file (YAML list schema, trivy >= v0.48).
+# Reference: trivy pkg/result.IgnoreConfig / IgnoreFinding
+#   vulnerabilities:            <- list of findings to ignore
+#     - id: <vuln-id>
+#       statement: <why it's accepted>
+#       expired_at: <optional YYYY-MM-DD>
+#
+# Rationale: every entry here is inherited from the upstream runtime base image
+# (mcr.microsoft.com/azure-cli), NOT from layers we own. We already upgrade the
+# OS packages at build time (tdnf update) and pin a fresh 2.89.x tag to grab
+# the latest advisories, but the findings below cannot be fixed from inside this
+# image and are documented as accepted-risk / tracked-upstream here:
+
+# `cryptography` pip wheel bundled inside the azure-cli image (v46.0.7).
+# trivy reports CVE-2026-69247 / CVE-2026-69249 fixed only in 49.0.0/50.0.0 and
+# GHSA-537c-gmf6-5ccf (bundled OpenSSL) fixed in 48.0.1. This wheel ships as
+# part of the upstream image's bundled Python venv at /usr/lib/az; no published
+# azure-cli tag bundles a fixed wheel (46.0.7 is the newest anywhere). Upgrading
+# it at build time would diverge from azure-cli's pinned venv and can break
+# `az`. Revisit when Microsoft publishes a tag bundling >=48.0.1.
+vulnerabilities:
+  - id: CVE-2026-69247
+    statement: >-
+      Bundled cryptography wheel frozen in upstream azure-cli image; no fixed
+      wheel in any published tag. Report is cache-invalid for 46.0.7. Tracked
+      upstream (https://github.com/advisories?query=CVE-2026-69247).
+  - id: CVE-2026-69249
+    statement: >-
+      Bundled cryptography wheel frozen in upstream azure-cli image; no fixed
+      wheel in any published tag. Report is cache-invalid for 46.0.7. Tracked
+      upstream (https://github.com/advisories?query=CVE-2026-69249).
+  - id: GHSA-537c-gmf6-5ccf
+    statement: >-
+      OpenSSL bundled inside the cryptography wheel frozen in the upstream
+      azure-cli image (46.0.7). Not writable from inside this image without
+      diverging from azure-cli's pinned venv. Tracked upstream
+      (https://github.com/advisories/GHSA-537c-gmf6-5ccf).
+
+  # `msgpack` / `setuptools` pip wheels bundled inside the azure-cli venv.
+  # They are runtime dependencies of azure-cli core (az actively imports them),
+  # pinned by the upstream image. Upgrading them in the venv at build time would
+  # diverge from azure-cli's pinned environment and risks breaking `az login`.
+  # Same tracked-upstream rationale as the cryptography wheel above.
+  - id: GHSA-6v7p-g79w-8964
+    statement: >-
+      msgpack pip wheel bundled in the upstream azure-cli venv and imported by
+      azure-cli core. Upgrading it diverges from the pinned environment and can
+      break `az`. Tracked upstream (https://github.com/advisories/GHSA-6v7p-g79w-8964).
+  - id: CVE-2025-47273
+    statement: >-
+      setuptools pip wheel bundled in the upstream azure-cli venv. Upgrading it
+      diverges from azure-cli's pinned environment and can break `az`. Tracked
+      upstream (https://avd.aquasec.com/nvd/cve-2025-47273).
