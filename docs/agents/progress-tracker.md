@@ -36,4 +36,5 @@ live in `docs/adr/`.
 
 - Issue tracker: GitHub Issues is intentionally **not used** (empty). See `docs/agents/issue-tracker.md`.
 - Workflow: complete work → `make build` + `go vet ./...` + `go test ./...` + frontend `npm run build`/`npm test` green → commit AND push to `origin/main`.
-- Live verification against the real org requires `AZDO_ORG` (e.g. `happyspartan`) and an authenticated Azure CLI (`az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798`); MSA pass-through header needed for MSA accounts.
+- Live verification against the real org requires `AZDO_ORG` (e.g. `happyspartan`), an authenticated Azure CLI (`az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798`), and use of the **work/school** (Entra) account (`JohnSub04-Main`). Personal MSA tokens are rejected for this org.
+- The `X-VSS-ForceMsaPassThrough` header was made configurable to fix a real deployment bug. Default `true` (needed for Microsoft personal accounts). For work/school accounts / managed identities set `AZDO_MSA_PASSTHROUGH=false`, otherwise Azure DevOps returns a VS403363 401 even with a valid token.
