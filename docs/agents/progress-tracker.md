@@ -18,14 +18,17 @@ live in `docs/adr/`.
 - [x] Git namespace: repositories + branches (Git Repositories namespace `2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87`). Collect repos and head refs per project, ACLs for repo and branch tokens, namespace-aware store, resources explorer hierarchy, subject/resource/explanation views decode against the correct namespace's actions, run-wide CSV export includes namespace column.
 - [x] Pipeline resource permissions: agent pools (BuildAdministration `302acaca-b667-436d-a946-87133492041c`, org-level, tokens `pools/<poolId>`), service connections (ServiceEndpoints `49b48001-ca20-4adc-8111-5b60c903a50c`, tokens `<projectId>/<endpointId>`), variable groups (Library `b7e84409-6553-448a-bbb2-af228e07cbeb`, tokens `<projectId>/<variableGroupId>`). Tables, tx writers, run counts, permissionResource inference, resources explorer sections, overview stats, export.
 - [ ] Classic build pipelines (non-YAML build definitions share the Build namespace; add the classic-definition collection path)
-- [ ] Classic release pipelines (distinct permissions path — separate namespace work)
 - [ ] Org/project-level namespaces beyond Build and Git (e.g. WorkItemTracking, VersionControlItems) — decide scope before starting
-- [ ] Native `.xlsx` workbook export (run coverage, effective permissions, assignments, subjects/memberships, warnings) — v1 decided CSV only; `.xlsx` is the follow-up
 
 ### Platform & engineering
 
 - [x] CI container job: resolve trivy HIGH/CRITICAL findings in the azure-cli base image. Go 1.25.12→1.26.6 clears stdlib findings (CVE-2026-39821, CVE-2026-46600; 1.25.13 alone did not cover the latter); runtime image pinned to `azure-cli:2.89.1` + `tdnf update` clears OS-package findings (libarchive/libssh2/python3); remaining bundled-pip-wheel findings (cryptography/msgpack/setuptools, frozen in azure-cli's venv, no fixed wheel shipped upstream) are documented in `.trivyignore.yaml` as accepted-risk/tracked-upstream.
 - [ ] Cosmetic: commit `511fdc8` message has a shell-eaten backtick phrase. Not worth rewriting pushed history; leave as-is unless history is ever rewritten.
+
+## Out of scope (decided — not planned)
+
+- Classic release pipelines (distinct permissions path) — explicitly out of scope.
+- Native `.xlsx` workbook export — explicitly out of scope; CSV remains the only export format.
 
 ## Notes
 
