@@ -81,6 +81,18 @@ func main() {
 	log.Println("Shutting down...")
 }
 
+// msaPassthroughEnabled reports whether to send X-VSS-ForceMsaPassThrough.
+// It defaults to true (mirroring the Azure CLI azure-devops extension) for
+// Microsoft personal accounts; set AZDO_MSA_PASSTHROUGH=false for work/school
+// (Entra) accounts or managed identities, which that header can break.
+func msaPassthroughEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("AZDO_MSA_PASSTHROUGH")))
+	if v == "" {
+		return true
+	}
+	return v != "0" && v != "false" && v != "no" && v != "off"
+}
+
 // apiRoutes returns the v1 JSON API handler.
 func apiRoutes(st *store.Store) http.Handler {
 	org := os.Getenv("AZDO_ORG")
@@ -121,7 +133,7 @@ func apiRoutes(st *store.Store) http.Handler {
 			if err := requireAzAuth(ctx); err != nil {
 				return nil, err
 			}
-			client, err := azdo.NewClient(org)
+			client, err := azdo.NewClient(org, azdo.WithForceMsaPassThrough(msaPassthroughEnabled()))
 			if err != nil {
 				return nil, err
 			}

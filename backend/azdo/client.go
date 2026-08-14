@@ -104,6 +104,11 @@ type Client struct {
 	maxRetries int
 	retryBase  time.Duration
 	retryMax   time.Duration
+	// forceMsaPassThrough sends the X-VSS-ForceMsaPassThrough header. It lets
+	// Microsoft (personal) accounts authenticate, but breaks work/school
+	// (Entra) accounts and managed identities. Default true mirrors the Azure
+	// CLI's azure-devops extension; set to false for work/school deployments.
+	forceMsaPassThrough bool
 
 	mu        sync.Mutex // guards cachedTok
 	cachedTok string
@@ -127,6 +132,11 @@ func WithTokenProvider(t TokenProvider) Option { return func(c *Client) { c.toke
 // WithAuthHeader sets the auth scheme prefix (tests may use "Basic").
 func WithAuthHeader(s string) Option { return func(c *Client) { c.authHeader = s } }
 
+// WithForceMsaPassThrough controls the X-VSS-ForceMsaPassThrough header.
+// It defaults to true; pass false for work/school (Entra) accounts or managed
+// identities, which that header can break.
+func WithForceMsaPassThrough(on bool) Option { return func(c *Client) { c.forceMsaPassThrough = on } }
+
 // WithRetry sets retry/backoff limits for throttled or transient calls.
 func WithRetry(max int, base, hard time.Duration) Option {
 	return func(c *Client) {
@@ -149,8 +159,9 @@ func NewClient(org string, opts ...Option) (*Client, error) {
 		vsspsURL:   VSSPSBaseURL,
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 		token:      NewAzCLITokenProvider(),
-		authHeader: "Bearer",
-		userAgent:  "azuredevops-permissions-visualiser/0.0.1",
+		authHeader:          "Bearer",
+		userAgent:           "azuredevops-permissions-visualiser/0.0.1",
+		forceMsaPassThrough: true,
 		maxRetries: 3,
 		retryBase:  500 * time.Millisecond,
 		retryMax:   8 * time.Second,
@@ -207,8 +218,12 @@ func (c *Client) request(ctx context.Context, method, host, apiPath string, quer
 	// Azure DevOps passes an Entra access token through for Microsoft
 	// (personal) accounts only when this header is set; without it dev.azure.com
 	// redirects to its sign-in page with a 3xx even when the token is valid.
-	// The Azure CLI's azure-devops extension sends it unconditionally; mirror that.
-	req.Header.Set("X-VSS-ForceMsaPassThrough", "true")
+	// The Azure CLI's azure-devops extension sends it unconditionally; mirror
+	// that. Work/school (Entra) accounts and managed identities must have it
+	// OFF (see WithForceMsaPassThrough), otherwise they get a VS403363 401.
+	if c.forceMsaPassThrough {
+		req.Header.Set("X-VSS-ForceMsaPassThrough", "true")
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

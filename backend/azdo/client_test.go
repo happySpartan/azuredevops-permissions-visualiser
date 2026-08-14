@@ -37,6 +37,36 @@ func writeJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+func TestMSAPassThroughHeader(t *testing.T) {
+	assertHeader := func(want string) {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("X-VSS-ForceMsaPassThrough"); got != want {
+				t.Errorf("X-VSS-ForceMsaPassThrough = %q, want %q", got, want)
+			}
+			writeJSON(w, map[string]any{"value": []Project{}})
+		}))
+		defer srv.Close()
+		c, err := NewClient("myorg",
+			WithHTTPClient(srv.Client()),
+			WithBaseURL(srv.URL),
+			WithVSSPSURL(srv.URL),
+			WithTokenProvider(staticToken{t: "tok-123"}),
+			WithRetry(0, 0, 0),
+			WithForceMsaPassThrough(want == "true"),
+		)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		if _, err := c.Projects(context.Background()); err != nil {
+			t.Fatalf("Projects: %v", err)
+		}
+	}
+	// Defaults are covered by TestProjects; here assert both explicit settings.
+	assertHeader("true")  // personal MSA account
+	assertHeader("")      // work/school (Entra) account / managed identity
+}
+
 func TestProjects(t *testing.T) {
 	c, srv := fakeOrg(t, func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Path; got != "/myorg/_apis/projects" {
