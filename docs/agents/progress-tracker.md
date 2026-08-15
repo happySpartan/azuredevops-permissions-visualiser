@@ -13,7 +13,7 @@ live in `docs/adr/`.
 - [x] v1.1.0 — Git repository/branch namespace and pipeline resource permissions (agent pools, service connections, variable groups) on top of v1.0.0; container hardened (Go 1.26.6, azure-cli 2.89.1 + tdnf update, trivy scan green).
   Tag `v1.1.0` at `aeca561`; release URL: https://github.com/happySpartan/azuredevops-permissions-visualiser/releases/tag/v1.1.0
 - [x] v1.1.1 — Bugfix release: `X-VSS-ForceMsaPassThrough` header made configurable via `AZDO_MSA_PASSTHROUGH` (default `true`) and set to `false` for work/school/Entra accounts to fix the VS403363 401 that broke work/school-account deployments.
-  Tag `v1.1.1` at `a94adbb`; release URL: https://github.com/happySpartan/azuredevops-permissions-visualiser/releases/tag/v1.1.1
+  Tag `v1.1.1` at current main (`6101742`); release URL: https://github.com/happySpartan/azuredevops-permissions-visualiser/releases/tag/v1.1.1
 
 ## Backlog
 
